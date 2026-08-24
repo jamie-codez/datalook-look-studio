@@ -229,7 +229,7 @@ export function NewConnectionDialog({
     setPort(String(driverMeta(value).defaultPort))
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (submitting) return
     if (!name.trim() || !host.trim()) {
@@ -253,22 +253,30 @@ export function NewConnectionDialog({
       topology,
       replicaHosts: topology !== 'standalone' && validReplicas.length > 0 ? validReplicas : undefined,
     }
-    if (isEditing && editingConnection) {
-      updateConnection(editingConnection.id, connInput)
-      logAudit(`Update ${effectiveScope} connection`, name.trim(), 'allowed')
-      toast.success(`Connection "${name.trim()}" updated`)
-    } else {
-      addConnection(connInput)
-      logAudit(`Create ${effectiveScope} connection`, name.trim(), 'allowed')
-      toast.success(`Connection "${name.trim()}" created`, {
-        description:
-          effectiveScope === 'shared'
-            ? `Shared · ${grants.length} ${grants.length === 1 ? 'member' : 'members'} assigned`
-            : 'Personal · visible only to you',
+    try {
+      if (isEditing && editingConnection) {
+        updateConnection(editingConnection.id, connInput)
+        logAudit(`Update ${effectiveScope} connection`, name.trim(), 'allowed')
+        toast.success(`Connection "${name.trim()}" updated`)
+      } else {
+        await addConnection(connInput)
+        logAudit(`Create ${effectiveScope} connection`, name.trim(), 'allowed')
+        toast.success(`Connection "${name.trim()}" created`, {
+          description:
+            effectiveScope === 'shared'
+              ? `Shared · ${grants.length} ${grants.length === 1 ? 'member' : 'members'} assigned`
+              : 'Personal · visible only to you',
+        })
+      }
+      reset()
+      onOpenChange(false)
+    } catch (err) {
+      toast.error('Failed to create connection', {
+        description: err instanceof Error ? err.message : 'Unknown error',
       })
+    } finally {
+      setSubmitting(false)
     }
-    reset()
-    onOpenChange(false)
   }
 
   return (

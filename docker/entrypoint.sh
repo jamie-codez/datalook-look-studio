@@ -11,7 +11,7 @@ if [ -n "$PGHOST" ]; then
   until [ $RETRY -ge $MAX_RETRIES ]; do
     RETRY=$((RETRY + 1))
     echo "[entrypoint] Attempt $RETRY/$MAX_RETRIES..."
-    if npx tsx scripts/init-db.ts; then
+    if node_modules/.bin/tsx scripts/init-db.ts; then
       echo "[entrypoint] Database initialization successful."
       break
     else

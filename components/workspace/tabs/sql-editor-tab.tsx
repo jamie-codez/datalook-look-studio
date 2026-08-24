@@ -3,14 +3,8 @@
 import { useCallback, useRef, useState } from "react"
 import type { QueryResult, Tab } from "@/lib/types"
 import { useWorkspace } from "@/components/providers/workspace-provider"
-import {
-  classifyStatement,
-  checkConnectionStatementAllowed,
-  connectionCapabilities,
-  connectionRoleLabel,
-  permissionForStatement,
-} from "@/lib/rbac"
-import { executeStatement } from "@/lib/mock-sql"
+import { classifyStatement, checkConnectionStatementAllowed, connectionCapabilities, permissionForStatement } from "@/lib/rbac"
+import { runQuery as executeQueryApi } from "@/lib/db/api-client"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -106,34 +100,47 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
     }
 
     setRun({ status: "running" })
-    await new Promise((r) => setTimeout(r, 240 + Math.random() * 320))
 
-    const { result, rowCount } = executeStatement(connection, trimmed)
-    updateTabSql(tab.id, trimmed)
-    logAudit(`Run ${type}`, connection.name, "allowed")
+    try {
+      const result = await executeQueryApi(connection.id, trimmed)
+      updateTabSql(tab.id, trimmed)
+      logAudit(`Run ${type}`, connection.name, "allowed")
 
-    if (result.error) {
-      setRun({ status: "error", message: result.error })
+      if (result.error) {
+        setRun({ status: "error", message: result.error })
+        recordQuery({
+          sql: trimmed,
+          durationMs: result.durationMs,
+          status: "error",
+          connectionName: connection.name,
+          rowCount: 0,
+          statementType: type,
+        })
+        return
+      }
+
+      const rowCount = result.rows.length
+      setRun({ status: "success", result, affectedRows: result.affectedRows, rowCount })
       recordQuery({
         sql: trimmed,
         durationMs: result.durationMs,
+        status: "success",
+        connectionName: connection.name,
+        rowCount,
+        statementType: type,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      setRun({ status: "error", message })
+      recordQuery({
+        sql: trimmed,
+        durationMs: 0,
         status: "error",
         connectionName: connection.name,
         rowCount: 0,
         statementType: type,
       })
-      return
     }
-
-    setRun({ status: "success", result, affectedRows: result.affectedRows, rowCount })
-    recordQuery({
-      sql: trimmed,
-      durationMs: result.durationMs,
-      status: "success",
-      connectionName: connection.name,
-      rowCount,
-      statementType: type,
-    })
   }, [sql, connRole, connection, logAudit, recordQuery, updateTabSql, tab.id])
 
   // The top action bar's Run button drives the currently focused editor tab.

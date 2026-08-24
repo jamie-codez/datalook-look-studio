@@ -243,7 +243,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const addConnection = React.useCallback(
-    (input: NewConnectionInput) => {
+    async (input: NewConnectionInput) => {
       const id = nextId('conn')
       const connection: Connection = {
         id,
@@ -254,7 +254,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         database: input.database,
         username: input.username,
         password: input.password,
-        status: isProduction ? 'disconnected' : 'connected',
+        status: 'disconnected',
         readOnly: input.readOnly,
         accent: driverAccent(input.driver),
         version: '',
@@ -276,6 +276,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
       setAllConnections((prev) => [...prev, connection])
       void saveConnection(connection)
+
+      // Also save server-side for Route Handler access + test the connection
+      try {
+        const { createConnection } = await import('@/lib/db/api-client')
+        const result = await createConnection({
+          id,
+          driver: input.driver,
+          name: input.name,
+          host: input.host,
+          port: input.port,
+          database: input.database,
+          username: input.username,
+          password: input.password,
+          readOnly: input.readOnly,
+          scope: input.scope,
+          ownerId: currentUser.id,
+        })
+        if (result.status === 'connected') {
+          setAllConnections((prev) =>
+            prev.map((c) => (c.id === id ? { ...c, status: 'connected' } : c)),
+          )
+        }
+      } catch {
+        // Server-side creation failed — connection still saved client-side
+      }
     },
     [currentUser.id],
   )

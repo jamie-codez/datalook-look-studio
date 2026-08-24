@@ -64,15 +64,16 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Include pg, tsx, and the init script so the entrypoint can initialize the DB
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
-RUN corepack enable && corepack prepare pnpm@latest --activate \
-  && pnpm install --prod --frozen-lockfile --ignore-scripts \
-  && pnpm add -D tsx @types/pg @types/node
+# Include pg, tsx, and node_modules from the builder stage for the init script
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 
 COPY --chown=nextjs:nodejs scripts ./scripts
 COPY --chown=nextjs:nodejs docker/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
+
+# Create writable data directory for server-side connection credential storage
+RUN mkdir -p .data && chown nextjs:nodejs .data
 
 USER nextjs
 EXPOSE 3000

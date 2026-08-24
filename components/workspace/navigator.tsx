@@ -23,6 +23,7 @@ import {
   Info,
   Play,
   Pencil,
+  FolderSearch,
   Trash2,
   Server,
   Lock,
@@ -46,6 +47,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { useWorkspace } from '@/components/providers/workspace-provider'
 import { ManageAccessDialog } from './manage-access-dialog'
 import { NewConnectionDialog } from './new-connection-dialog'
+import { DatabaseBrowserDialog } from './database-browser-dialog'
 import { HelpDialog } from './help-dialog'
 import { connectionCapabilities, connectionRoleLabel } from '@/lib/rbac'
 import { containerLabel, entityPlural } from '@/lib/drivers'
@@ -430,6 +432,7 @@ function ConnectionBranch({
   const [expanded, setExpanded] = React.useState(false)
   const [manageOpen, setManageOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
+  const [browseOpen, setBrowseOpen] = React.useState(false)
 
   const connMatches = !filter || connection.name.toLowerCase().includes(filter.toLowerCase())
   const hasMatchingSchema = filter
@@ -477,6 +480,22 @@ function ConnectionBranch({
         open={editOpen}
         onOpenChange={setEditOpen}
         editingConnection={connection}
+      />
+      <DatabaseBrowserDialog
+        open={browseOpen}
+        onOpenChange={setBrowseOpen}
+        connection={connection}
+        onSelect={(_db, _schema, table) => {
+          openTab(
+            {
+              kind: 'data',
+              title: `${connection.name} · ${table}`,
+              connectionId: connection.id,
+              tableId: table,
+            },
+            { focusExisting: true },
+          )
+        }}
       />
       {isShared && (
         <ManageAccessDialog
@@ -548,6 +567,10 @@ function ConnectionBranch({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={() => setBrowseOpen(true)}>
+                    <FolderSearch />
+                    Browse databases
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() =>
                       openTab(
