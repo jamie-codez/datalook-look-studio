@@ -4,9 +4,10 @@
 // encrypted via the AES-GCM master key; the rest of the connection metadata is
 // stored in clear so the tree can render without decrypting everything.
 
-import type { Connection, DriverCategory, DriverId } from './types'
+import type { AuditLogItem, Connection, DriverCategory, DriverId } from './types'
 import { decryptJson, encryptJson } from './crypto'
 import {
+  AUDIT_STORE,
   CONNECTION_STORE,
   META_STORE,
   QUERY_STORE,
@@ -113,4 +114,24 @@ export async function loadSavedQueries(): Promise<SavedQuery[]> {
 export async function loadSavedQueriesByDriver(driver: DriverId): Promise<SavedQuery[]> {
   const all = await idbGetAll<SavedQuery>(QUERY_STORE)
   return all.filter((q) => q.driver === driver)
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — persisted as JSON records, loaded at app startup
+// ---------------------------------------------------------------------------
+
+export async function saveAuditEntry(entry: AuditLogItem): Promise<void> {
+  await idbPut(AUDIT_STORE, entry)
+}
+
+export async function loadAuditLog(): Promise<AuditLogItem[]> {
+  const entries = await idbGetAll<AuditLogItem>(AUDIT_STORE)
+  return entries.sort((a, b) => b.timestamp - a.timestamp)
+}
+
+export async function clearAuditLog(): Promise<void> {
+  const entries = await idbGetAll<AuditLogItem>(AUDIT_STORE)
+  for (const e of entries) {
+    await idbDelete(AUDIT_STORE, e.id)
+  }
 }

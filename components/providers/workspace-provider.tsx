@@ -17,8 +17,10 @@ import { driverAccent, driverMeta } from '@/lib/drivers'
 import {
   type AppConfig,
   loadAppConfig,
+  loadAuditLog,
   loadConnections,
   saveAppConfig,
+  saveAuditEntry,
   saveConnection,
   deleteConnection as deletePersistedConnection,
 } from '@/lib/persistence'
@@ -101,9 +103,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      let [cfg, persisted] = await Promise.all([
+      let [cfg, persisted, persistedAudit] = await Promise.all([
         loadAppConfig(),
         loadConnections(),
+        loadAuditLog(),
       ])
       if (cancelled) return
 
@@ -126,6 +129,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
       setAllConnections(Array.from(merged.values()))
       setConfig(cfg)
+      if (persistedAudit.length > 0) {
+        setAuditLog(persistedAudit)
+      }
       setHydrated(true)
     })()
     return () => {
@@ -169,18 +175,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const logAudit = React.useCallback(
     (action: string, target: string, status: AuditStatus, roleOverride?: Role) => {
-      setAuditLog((prev) => [
-        {
-          id: nextId('audit'),
-          timestamp: Date.now(),
-          userName: currentUser.name,
-          role: roleOverride ?? currentUser.role,
-          action,
-          target,
-          status,
-        },
-        ...prev,
-      ])
+      const entry: AuditLogItem = {
+        id: nextId('audit'),
+        timestamp: Date.now(),
+        userName: currentUser.name,
+        role: roleOverride ?? currentUser.role,
+        action,
+        target,
+        status,
+      }
+      setAuditLog((prev) => [entry, ...prev])
+      saveAuditEntry(entry).catch(() => {})
     },
     [currentUser],
   )

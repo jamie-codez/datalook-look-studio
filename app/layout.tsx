@@ -13,6 +13,11 @@ export const metadata: Metadata = {
   description:
     'A web-based database management studio with a SQL editor, data grid, metadata navigator, and role-based access control.',
   generator: 'v0.app',
+  icons: {
+    icon: '/favicon.svg',
+    apple: '/apple-touch-icon.svg',
+  },
+  manifest: '/manifest.json',
 }
 
 export const viewport: Viewport = {

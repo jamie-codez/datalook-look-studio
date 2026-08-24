@@ -10,6 +10,7 @@ const DB_VERSION = 2
 export const META_STORE = 'meta'
 export const CONNECTION_STORE = 'connections'
 export const QUERY_STORE = 'queries'
+export const AUDIT_STORE = 'audit'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -31,6 +32,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(QUERY_STORE)) {
         db.createObjectStore(QUERY_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(AUDIT_STORE)) {
+        db.createObjectStore(AUDIT_STORE, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)

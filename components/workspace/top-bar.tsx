@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { RoleBadge } from './role-badge'
 import { NewConnectionDialog } from './new-connection-dialog'
+import { DatasourcePickerDialog } from './datasource-picker-dialog'
 import { useTheme } from '@/components/providers/theme-provider'
 import { useAuth } from '@/components/providers/auth-provider'
 import { useWorkspace } from '@/components/providers/workspace-provider'
@@ -107,6 +108,8 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const { can } = useRBAC()
   const { activeTab, openTab, connections, logAudit } = useWorkspace()
   const [connectionDialogOpen, setConnectionDialogOpen] = React.useState(false)
+  const [datasourcePickerOpen, setDatasourcePickerOpen] = React.useState(false)
+  const [pickerMode, setPickerMode] = React.useState<'query' | 'browse'>('query')
 
   const isSqlTab = activeTab?.kind === 'sql'
   const isDataOrSql = activeTab?.kind === 'sql' || activeTab?.kind === 'data'
@@ -165,9 +168,7 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
 
         {/* Brand */}
         <div className="flex items-center gap-2 pr-1 pl-1">
-          <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Database className="size-4" />
-          </div>
+          <img src="/favicon.svg" alt="Datalook Studio" className="size-7 rounded-md" />
           <div className="hidden flex-col leading-none sm:flex">
             <span className="text-sm font-semibold tracking-tight">Datalook</span>
             <span className="text-[10px] font-medium tracking-[0.2em] text-muted-foreground">
@@ -188,14 +189,20 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
           <ActionButton
             label="New Query"
             icon={Database}
-            onClick={() =>
-              openTab({
-                kind: 'sql',
-                title: 'Untitled query',
-                connectionId: connections[0]?.id,
-                sql: '',
-              })
-            }
+            onClick={() => {
+              const userConnections = connections.filter((c) => !c.isSystem)
+              if (userConnections.length === 0 || !activeTab?.connectionId) {
+                setPickerMode('query')
+                setDatasourcePickerOpen(true)
+              } else {
+                openTab({
+                  kind: 'sql',
+                  title: 'Untitled query',
+                  connectionId: activeTab.connectionId,
+                  sql: '',
+                })
+              }
+            }}
           />
           <ActionButton
             label="Run"
@@ -353,9 +360,10 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
-                onClick={() =>
+                onClick={() => {
                   openTab({ kind: 'settings', title: 'Settings' }, { focusExisting: true })
-                }
+                  window.dispatchEvent(new CustomEvent('settings:navigate', { detail: 'account' }))
+                }}
               >
                 <UserCircle />
                 Account
@@ -433,6 +441,36 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
         <NewConnectionDialog
           open={connectionDialogOpen}
           onOpenChange={setConnectionDialogOpen}
+        />
+        <DatasourcePickerDialog
+          open={datasourcePickerOpen}
+          onOpenChange={setDatasourcePickerOpen}
+          title={pickerMode === 'query' ? 'New query — choose data source' : 'Browse table — choose data source'}
+          description={pickerMode === 'query' ? 'Select a connection to run queries against.' : 'Select a connection, schema, and table to browse.'}
+          showTable={pickerMode === 'browse'}
+          onSelect={(sel) => {
+            if (pickerMode === 'query') {
+              openTab({
+                kind: 'sql',
+                title: 'Untitled query',
+                connectionId: sel.connectionId,
+                sql: '',
+              })
+            } else {
+              const conn = connections.find((c) => c.id === sel.connectionId)
+              const schema = conn?.schemas.find((s) => s.name === sel.schemaName)
+              const table = schema?.tables.find((t) => t.id === sel.tableId)
+              if (table) {
+                openTab({
+                  kind: 'data',
+                  title: table.name,
+                  connectionId: sel.connectionId,
+                  schemaName: sel.schemaName,
+                  tableId: sel.tableId,
+                })
+              }
+            }
+          }}
         />
       </header>
     </TooltipProvider>

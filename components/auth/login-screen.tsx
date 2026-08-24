@@ -80,9 +80,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
       {/* Brand panel */}
       <aside className="relative hidden w-[44%] max-w-xl flex-col justify-between overflow-hidden border-r border-border bg-sidebar p-10 lg:flex">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Database className="size-5" aria-hidden />
-          </span>
+          <img src="/favicon.svg" alt="Datalook Studio" className="size-9 rounded-md" />
           <span className="text-lg font-semibold tracking-tight">
             Datalook Studio
           </span>
@@ -127,9 +125,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
       <main className="flex flex-1 items-center justify-center p-6">
         <div className="flex w-full max-w-sm flex-col gap-8">
           <div className="flex flex-col gap-2 lg:hidden">
-            <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Database className="size-5" aria-hidden />
-            </span>
+            <img src="/favicon.svg" alt="Datalook Studio" className="size-9 rounded-md" />
             <span className="text-lg font-semibold tracking-tight">
               Datalook Studio
             </span>
@@ -154,6 +150,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
                   value={email}
                   aria-invalid={error ? true : undefined}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={pending}
                 />
               </Field>
 
@@ -168,6 +165,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
                     value={password}
                     aria-invalid={error ? true : undefined}
                     onChange={(e) => setPassword(e.target.value)}
+                    disabled={pending}
                   />
                   <InputGroupAddon align="inline-start">
                     <Lock />
@@ -228,6 +226,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
                   key={role}
                   type="button"
                   onClick={() => quickFill(role)}
+                  disabled={pending}
                   className={cn(
                     'flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors',
                     'hover:border-primary/50 hover:bg-accent focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-ring/50',

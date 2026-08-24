@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Rounded square background -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <!-- Database cylinder -->
+  <g stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Top ellipse -->
+    <ellipse cx="32" cy="20" rx="14" ry="5"/>
+    <!-- Side lines -->
+    <path d="M18 20v24c0 2.76 6.27 5 14 5s14-2.24 14-5V20"/>
+    <!-- Middle ellipse -->
+    <path d="M18 28c0 2.76 6.27 5 14 5s14-2.24 14-5"/>
+    <!-- Bottom ellipse -->
+    <path d="M18 36c0 2.76 6.27 5 14 5s14-2.24 14-5"/>
+  </g>
+  <!-- Eye/lens overlay (the "look" part) -->
+  <g fill="white">
+    <circle cx="32" cy="22" r="3.5"/>
+  </g>
+  <circle cx="32" cy="22" r="1.5" fill="#1d4ed8"/>
+</svg>

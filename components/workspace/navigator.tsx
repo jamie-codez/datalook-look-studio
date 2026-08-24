@@ -482,6 +482,16 @@ function ConnectionBranch({
         expandable
         expanded={expanded || !!filter}
         onToggle={() => setExpanded((v) => !v)}
+        onActivate={() =>
+          openTab(
+            {
+              kind: 'server-status',
+              title: `${connection.name} · status`,
+              connectionId: connection.id,
+            },
+            { focusExisting: true },
+          )
+        }
         active={selected}
         icon={<Database style={{ color: connection.accent }} />}
         label={

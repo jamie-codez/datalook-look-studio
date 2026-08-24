@@ -8,7 +8,10 @@
     "start": "next start",
     "db:up": "docker compose -f docker/docker-compose.yaml up -d",
     "db:down": "docker compose -f docker/docker-compose.yaml down",
-    "db:reset": "docker compose -f docker/docker-compose.yaml down -v"
+    "db:reset": "docker compose -f docker/docker-compose.yaml down -v",
+    "prod:build": "docker compose -f docker/docker-compose.yaml build app",
+    "prod:up": "docker compose -f docker/docker-compose.yaml up -d app",
+    "prod:down": "docker compose -f docker/docker-compose.yaml down"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.gitignore
+docs
+mkdocs.yaml
+.idea
+.env*
+tsconfig.tsbuildinfo

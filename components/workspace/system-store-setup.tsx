@@ -100,6 +100,7 @@ export function SystemStoreSetup({ onComplete }: SystemStoreSetupProps) {
                 key={card.family}
                 type="button"
                 onClick={() => selectFamily(card.family)}
+                disabled={pending}
                 aria-pressed={active}
                 className={cn(
                   'group relative flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors',

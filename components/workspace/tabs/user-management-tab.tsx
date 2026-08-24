@@ -49,6 +49,7 @@ export function UserManagementTab() {
   const [newName, setNewName] = React.useState("")
   const [newEmail, setNewEmail] = React.useState("")
   const [newRole, setNewRole] = React.useState<Role>("Viewer")
+  const [adding, setAdding] = React.useState(false)
 
   if (!allowed) {
     return (
@@ -69,16 +70,19 @@ export function UserManagementTab() {
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault()
+    if (adding) return
     if (!newName.trim() || !newEmail.trim()) {
       toast.error("Name and email are required")
       return
     }
+    setAdding(true)
     addUser({ name: newName.trim(), email: newEmail.trim(), role: newRole })
     logAudit("Add user", `${newName.trim()} (${newRole})`, "allowed")
     toast.success(`Added ${newName.trim()} as ${newRole}`)
     setNewName("")
     setNewEmail("")
     setNewRole("Viewer")
+    setAdding(false)
     setAddOpen(false)
   }
 
@@ -100,7 +104,7 @@ export function UserManagementTab() {
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-2 max-w-full p-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Users &amp; roles</h2>
@@ -207,6 +211,7 @@ export function UserManagementTab() {
             <DialogDescription>Invite a team member and assign a role.</DialogDescription>
           </DialogHeader>
           <form id="add-user-form" onSubmit={handleAdd}>
+            <fieldset disabled={adding} className="contents">
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="user-name">Name</FieldLabel>
@@ -244,14 +249,15 @@ export function UserManagementTab() {
                 </Select>
               </Field>
             </FieldGroup>
+            </fieldset>
           </form>
           <DialogFooter>
             <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" form="add-user-form">
+            <Button type="submit" form="add-user-form" disabled={adding}>
               <UserPlusIcon data-icon="inline-start" />
-              Add user
+              {adding ? "Adding…" : "Add user"}
             </Button>
           </DialogFooter>
         </DialogContent>

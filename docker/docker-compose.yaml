@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Spins up one real instance of every database driver supported by
 # lib/drivers.ts (see DriverId) so connections created in the app's
 # "New Connection" dialog can point at something real on localhost.
@@ -13,6 +11,27 @@ version: '3.8'
 # has no service here.
 
 services:
+  # ------------------------------------------------------------- App
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cbd-app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_APP_ENV: production
+      NEXT_PUBLIC_DEFAULT_DB_DRIVER: postgres
+      NEXT_PUBLIC_DEFAULT_ADMIN_NAME: Admin
+      NEXT_PUBLIC_DEFAULT_ADMIN_EMAIL: admin@datalook.com
+      NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD: Datalook@123
+      NEXT_PUBLIC_SYSTEM_DB_NAME: datalook-studio
+      # Optional: base64-encoded 256-bit AES key for encrypting credentials at rest
+      NEXT_PUBLIC_AES_KEY: secret
+    depends_on:
+      - postgres
+
   # ---------------------------------------------------------------- SQL
   postgres:
     image: postgres:16-alpine

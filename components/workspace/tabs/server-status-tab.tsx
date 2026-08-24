@@ -78,7 +78,7 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="p-6">
         <div className="flex flex-wrap items-center gap-2">
           <ServerIcon className="size-5 text-primary" aria-hidden />
           <h2 className="text-lg font-semibold text-foreground">{connection.name}</h2>

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { toast } from 'sonner'
-import { Plus, Users, Lock, Trash2, Server } from 'lucide-react'
+import { Plus, Users, Lock, Trash2, Server, FileUp, FileDown, ChevronDown } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useWorkspace } from '@/components/providers/workspace-provider'
 import { useAuth } from '@/components/providers/auth-provider'
 import { ConnectionAccessEditor } from './connection-access-editor'
@@ -39,6 +40,7 @@ import {
 } from '@/lib/drivers'
 import type { ConnectionGrant, DriverId, ReplicaHost } from '@/lib/types'
 import { ShieldCheck } from 'lucide-react'
+import { parseYamlConnections, serializeYamlConnections, type YamlConnectionConfig } from '@/lib/yaml-connections'
 
 export function NewConnectionDialog({
   open,
@@ -67,6 +69,90 @@ export function NewConnectionDialog({
   const [grants, setGrants] = React.useState<ConnectionGrant[]>([])
   const [topology, setTopology] = React.useState<'standalone' | 'replicaSet' | 'masterSlave'>('standalone')
   const [replicaHosts, setReplicaHosts] = React.useState<ReplicaHost[]>([])
+  const [submitting, setSubmitting] = React.useState(false)
+  const [showYaml, setShowYaml] = React.useState(false)
+  const [yamlText, setYamlText] = React.useState('')
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+  function handleYamlImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result)
+      setYamlText(text)
+      try {
+        const configs = parseYamlConnections(text)
+        if (configs.length === 0) {
+          toast.error('No valid connections found in YAML')
+          return
+        }
+        const c = configs[0]
+        setName(c.name)
+        setDriver(c.driver)
+        setHost(c.host)
+        setPort(String(c.port))
+        setDatabase(c.database)
+        setUsername(c.username)
+        setReadOnly(c.readOnly ? 'ro' : 'rw')
+        if (c.topology) setTopology(c.topology)
+        if (c.replicaHosts) setReplicaHosts(c.replicaHosts)
+        toast.success(`Imported "${c.name}" from YAML`, {
+          description: `${configs.length} connection${configs.length > 1 ? 's' : ''} found — showing first.`,
+        })
+      } catch {
+        toast.error('Failed to parse YAML file')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  function handleYamlExport() {
+    const config: YamlConnectionConfig = {
+      name: name || 'Unnamed',
+      driver,
+      host: host || '',
+      port: Number.parseInt(port, 10) || 0,
+      database: database || '',
+      username: username || 'app',
+      readOnly: readOnly === 'ro',
+      topology,
+      replicaHosts: topology !== 'standalone' ? replicaHosts.filter((r) => r.host.trim()) : undefined,
+    }
+    const yaml = serializeYamlConnections([config])
+    const blob = new Blob([yaml], { type: 'text/yaml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'connections.yaml'
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Exported connection as YAML')
+  }
+
+  function handleYamlTextImport() {
+    try {
+      const configs = parseYamlConnections(yamlText)
+      if (configs.length === 0) {
+        toast.error('No valid connections found in YAML')
+        return
+      }
+      const c = configs[0]
+      setName(c.name)
+      setDriver(c.driver)
+      setHost(c.host)
+      setPort(String(c.port))
+      setDatabase(c.database)
+      setUsername(c.username)
+      setReadOnly(c.readOnly ? 'ro' : 'rw')
+      if (c.topology) setTopology(c.topology)
+      if (c.replicaHosts) setReplicaHosts(c.replicaHosts)
+      toast.success(`Imported "${c.name}" from YAML`)
+    } catch {
+      toast.error('Invalid YAML format')
+    }
+  }
 
   function reset() {
     setName('')
@@ -80,6 +166,7 @@ export function NewConnectionDialog({
     setGrants([])
     setTopology('standalone')
     setReplicaHosts([])
+    setSubmitting(false)
   }
 
   function addReplicaHost() {
@@ -107,10 +194,12 @@ export function NewConnectionDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (submitting) return
     if (!name.trim() || !host.trim() || !database.trim()) {
       toast.error('Please fill in connection name, host, and database.')
       return
     }
+    setSubmitting(true)
     const effectiveScope = canCreateShared ? scope : 'personal'
     const validReplicas = replicaHosts.filter((r) => r.host.trim())
     addConnection({
@@ -143,7 +232,7 @@ export function NewConnectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New connection</DialogTitle>
           <DialogDescription>
@@ -153,8 +242,86 @@ export function NewConnectionDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* YAML import/export */}
+        <div className="rounded-md border border-border bg-muted/30">
+          <button
+            type="button"
+            onClick={() => setShowYaml((v) => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span className="flex items-center gap-1.5">
+              <FileUp className="size-3.5" />
+              Import / Export YAML
+            </span>
+            <ChevronDown className={`size-3.5 transition-transform ${showYaml ? 'rotate-180' : ''}`} />
+          </button>
+          {showYaml && (
+            <div className="flex flex-col gap-2 border-t border-border p-3">
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={submitting}
+                >
+                  <FileUp data-icon="inline-start" className="size-3.5" />
+                  Upload .yaml
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".yaml,.yml,text/yaml"
+                  className="hidden"
+                  onChange={handleYamlImport}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={handleYamlExport}
+                  disabled={submitting}
+                >
+                  <FileDown data-icon="inline-start" className="size-3.5" />
+                  Export current
+                </Button>
+              </div>
+              <textarea
+                className="h-32 w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary"
+                placeholder={'connections:\n  - name: My DB\n    driver: postgres\n    host: localhost\n    port: 5432\n    database: appdb\n    username: app\n    readOnly: false'}
+                value={yamlText}
+                onChange={(e) => setYamlText(e.target.value)}
+                disabled={submitting}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={handleYamlTextImport}
+                disabled={submitting || !yamlText.trim()}
+              >
+                <FileUp data-icon="inline-start" className="size-3.5" />
+                Parse YAML text
+              </Button>
+            </div>
+          )}
+        </div>
+
         <form onSubmit={handleSubmit} id="new-connection-form">
-          <FieldGroup>
+          <fieldset disabled={submitting} className="contents">
+          <Tabs defaultValue="connection">
+            <TabsList className="w-full">
+              <TabsTrigger value="connection" className="flex-1">Connection</TabsTrigger>
+              <TabsTrigger value="topology" className="flex-1">Topology</TabsTrigger>
+              {canCreateShared && <TabsTrigger value="access" className="flex-1">Access</TabsTrigger>}
+            </TabsList>
+
+            {/* Connection tab */}
+            <TabsContent value="connection" className="mt-4">
+            <FieldGroup>
             <Field>
               <FieldLabel htmlFor="conn-name">Connection name</FieldLabel>
               <Input
@@ -219,6 +386,32 @@ export function NewConnectionDialog({
               />
             </Field>
 
+            <Field orientation="responsive">
+              <Field>
+                <FieldLabel htmlFor="conn-db">Database</FieldLabel>
+                <Input
+                  id="conn-db"
+                  value={database}
+                  onChange={(e) => setDatabase(e.target.value)}
+                  placeholder="appdb"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="conn-user">Username</FieldLabel>
+                <Input
+                  id="conn-user"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="app"
+                />
+              </Field>
+            </Field>
+            </FieldGroup>
+            </TabsContent>
+
+            {/* Topology tab */}
+            <TabsContent value="topology" className="mt-4">
+            <FieldGroup>
             <Field>
               <FieldLabel>Topology</FieldLabel>
               <ToggleGroup
@@ -305,28 +498,13 @@ export function NewConnectionDialog({
                 )}
               </Field>
             )}
+            </FieldGroup>
+            </TabsContent>
 
-            <Field orientation="responsive">
-              <Field>
-                <FieldLabel htmlFor="conn-db">Database</FieldLabel>
-                <Input
-                  id="conn-db"
-                  value={database}
-                  onChange={(e) => setDatabase(e.target.value)}
-                  placeholder="appdb"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="conn-user">Username</FieldLabel>
-                <Input
-                  id="conn-user"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="app"
-                />
-              </Field>
-            </Field>
-
+            {/* Access tab */}
+            {canCreateShared && (
+            <TabsContent value="access" className="mt-4">
+            <FieldGroup>
             <Field>
               <FieldLabel>Access mode</FieldLabel>
               <ToggleGroup
@@ -392,8 +570,12 @@ export function NewConnectionDialog({
                 />
               </Field>
             )}
+            </FieldGroup>
+            </TabsContent>
+            )}
+          </Tabs>
 
-            <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="mt-4 flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <ShieldCheck className="mt-px size-4 shrink-0 text-chart-2" />
               <span>
                 Host, port, database, and username are encrypted with AES-GCM
@@ -401,7 +583,7 @@ export function NewConnectionDialog({
                 unreadable at rest.
               </span>
             </div>
-          </FieldGroup>
+          </fieldset>
         </form>
 
         <DialogFooter>
@@ -412,9 +594,9 @@ export function NewConnectionDialog({
           >
             Cancel
           </Button>
-          <Button type="submit" form="new-connection-form">
+          <Button type="submit" form="new-connection-form" disabled={submitting}>
             <Plus data-icon="inline-start" />
-            Create connection
+            {submitting ? 'Creating…' : 'Create connection'}
           </Button>
         </DialogFooter>
       </DialogContent>

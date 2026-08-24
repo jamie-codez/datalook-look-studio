@@ -26,6 +26,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { toast } from "sonner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { detectGeoSchema, collectPoints } from "@/lib/geo"
 import { MapPanel } from "@/components/workspace/map-panel"
 import { NestedValueViewer } from "@/components/workspace/nested-value-viewer"
@@ -151,27 +159,86 @@ export function ResultsGrid({ result, columnMeta }: ResultsGridProps) {
     setShowMap(true)
   }
 
-  function exportCsv() {
-    const header = result.columns.join(",")
-    const body = rows
-      .map((r) =>
-        result.columns
-          .map((c) => {
-            const v = r[c]
-            const s = v === null || v === undefined ? "" : String(v)
-            return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-          })
-          .join(","),
+  function exportData(format: "csv" | "tsv" | "json" | "text") {
+    let content = ""
+    let mimeType = ""
+    let ext = ""
+
+    if (format === "json") {
+      const data = rows.map((r) => {
+        const obj: Record<string, unknown> = {}
+        for (const col of result.columns) obj[col] = r[col]
+        return obj
+      })
+      content = JSON.stringify(data, null, 2)
+      mimeType = "application/json"
+      ext = "json"
+    } else if (format === "csv") {
+      const header = result.columns.join(",")
+      const body = rows
+        .map((r) =>
+          result.columns
+            .map((c) => {
+              const v = r[c]
+              const s = v === null || v === undefined ? "" : String(v)
+              return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+            })
+            .join(","),
+        )
+        .join("\n")
+      content = `${header}\n${body}`
+      mimeType = "text/csv"
+      ext = "csv"
+    } else if (format === "tsv") {
+      const header = result.columns.join("\t")
+      const body = rows
+        .map((r) =>
+          result.columns
+            .map((c) => {
+              const v = r[c]
+              const s = v === null || v === undefined ? "" : String(v)
+              return s.replace(/\t/g, " ").replace(/\n/g, " ")
+            })
+            .join("\t"),
+        )
+        .join("\n")
+      content = `${header}\n${body}`
+      mimeType = "text/tab-separated-values"
+      ext = "tsv"
+    } else {
+      // text — aligned columns
+      const colWidths = result.columns.map((col) =>
+        Math.max(col.length, ...rows.map((r) => {
+          const v = r[col]
+          return v === null || v === undefined ? 0 : String(v).length
+        })),
       )
-      .join("\n")
-    const blob = new Blob([`${header}\n${body}`], { type: "text/csv" })
+      const header = result.columns.map((c, i) => c.padEnd(colWidths[i])).join("  ")
+      const separator = colWidths.map((w) => "-".repeat(w)).join("  ")
+      const body = rows
+        .map((r) =>
+          result.columns
+            .map((c, i) => {
+              const v = r[c]
+              const s = v === null || v === undefined ? "" : String(v)
+              return s.padEnd(colWidths[i])
+            })
+            .join("  "),
+        )
+        .join("\n")
+      content = `${header}\n${separator}\n${body}`
+      mimeType = "text/plain"
+      ext = "txt"
+    }
+
+    const blob = new Blob([content], { type: mimeType })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = "result.csv"
+    a.download = `result.${ext}`
     a.click()
     URL.revokeObjectURL(url)
-    toast.success("Exported result set to CSV")
+    toast.success(`Exported result set to ${format.toUpperCase()}`)
   }
 
   return (
@@ -207,10 +274,22 @@ export function ResultsGrid({ result, columnMeta }: ResultsGridProps) {
                 </span>
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={exportCsv}>
-              <DownloadIcon data-icon="inline-start" />
-              Export CSV
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" />}
+              >
+                <DownloadIcon data-icon="inline-start" />
+                Export
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Export format</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => exportData("csv")}>CSV (.csv)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportData("tsv")}>TSV (.tsv)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportData("json")}>JSON (.json)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportData("text")}>Text (.txt)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
