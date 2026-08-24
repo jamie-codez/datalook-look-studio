@@ -99,28 +99,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false)
   const [config, setConfig] = React.useState<AppConfig | null>(null)
 
-  // Load persisted config + encrypted connections once on mount, and merge the
-  // rebuilt system store (derived from config) with the code-seeded demos.
+  // Load persisted config + encrypted connections once on mount.
+  // In production, initSystemStore already ran in AuthProvider, so we just
+  // load the persisted state. Without SKIP_ONBOARDING, show SystemStoreSetup
+  // on first run (after onboarding completes).
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      let [cfg, persisted, persistedAudit] = await Promise.all([
+      const [cfg, persisted, persistedAudit] = await Promise.all([
         loadAppConfig(),
         loadConnections(),
         loadAuditLog(),
       ])
       if (cancelled) return
-
-      // Production with SKIP_ONBOARDING auto-configures the system store from
-      // the env-provided driver. Without SKIP_ONBOARDING, the system store
-      // setup screen is shown on first run (after onboarding completes).
-      if (isProduction && SKIP_ONBOARDING && !cfg.initialized) {
-        cfg = {
-          initialized: true,
-          systemStore: { driver: DEFAULT_DB_DRIVER, category: driverMeta(DEFAULT_DB_DRIVER).category },
-        }
-        await saveAppConfig(cfg)
-      }
 
       const merged = new Map<string, Connection>()
       if (!isProduction) for (const c of CONNECTIONS) merged.set(c.id, c)
@@ -139,7 +130,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-    // Runs once; currentUser.id only seeds the system store owner label.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -395,8 +385,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // First run: choose the system store before entering the workspace.
-  if (!config.initialized) {
+  // First run without SKIP_ONBOARDING: choose the system store before entering the workspace.
+  if (!config.initialized && !SKIP_ONBOARDING) {
     return <SystemStoreSetup onComplete={completeSetup} />
   }
 

@@ -14,13 +14,11 @@ import {
   DEFAULT_ADMIN_PASSWORD,
 } from '@/lib/env'
 import {
-  loadPersistedUsers,
   savePersistedUsers,
-  loadPersistedCustomRoles,
   savePersistedCustomRoles,
-  loadAdminPassword,
   saveAdminPassword,
 } from '@/lib/persistence'
+import { initSystemStore } from '@/lib/init-system'
 
 function initialsFrom(name: string) {
   return name
@@ -78,9 +76,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false)
   const [onboarding, setOnboarding] = React.useState(false)
 
-  // In production, hydrate users/customRoles/password from IndexedDB.
-  // When SKIP_ONBOARDING is true, check if admin user exists — create if not,
-  // log either way — before marking the app as hydrated.
+  // In production, run the full system initialization sequence first
+  // (creates DB, schema, admin user, system connection, first audit log),
+  // then hydrate from the results. In development, hydrate immediately.
   React.useEffect(() => {
     if (!isProduction) {
       setHydrated(true)
@@ -88,43 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false
     ;(async () => {
-      const [persistedUsers, persistedRoles, persistedPassword] = await Promise.all([
-        loadPersistedUsers(),
-        loadPersistedCustomRoles(),
-        loadAdminPassword(),
-      ])
-      if (cancelled) return
+      const result = await initSystemStore()
+      if (cancelled || !result) return
 
-      if (persistedRoles.length > 0) setCustomRoles(persistedRoles)
+      setUsers(result.users)
+      setCustomRoles(result.customRoles)
+      setAdminPassword(result.adminPassword)
 
-      if (SKIP_ONBOARDING) {
-        // Check if a user with the configured admin email already exists.
-        const adminEmail = DEFAULT_ADMIN_EMAIL.toLowerCase()
-        const existingAdmin = persistedUsers.find(
-          (u) => u.email.toLowerCase() === adminEmail,
-        )
-
-        if (existingAdmin) {
-          console.info(
-            `[Datalook] Admin user already exists (${adminEmail}) — skipping creation.`,
-          )
-          setUsers(persistedUsers)
-          if (persistedPassword) setAdminPassword(persistedPassword)
-        } else {
-          console.info(
-            `[Datalook] No admin user found for ${adminEmail} — creating from env config.`,
-          )
-          const admin = envAdminUser()
-          const newUsers = [...persistedUsers, admin]
-          setUsers(newUsers)
-          await savePersistedUsers(newUsers)
-          await saveAdminPassword(DEFAULT_ADMIN_PASSWORD)
-        }
-      } else if (persistedUsers.length > 0) {
-        setUsers(persistedUsers)
-        if (persistedPassword) setAdminPassword(persistedPassword)
-      } else {
-        // No users and no env config — show onboarding.
+      if (result.users.length === 0 && !SKIP_ONBOARDING) {
         setOnboarding(true)
       }
 
