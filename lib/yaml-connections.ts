@@ -34,6 +34,7 @@ export interface YamlConnectionConfig {
   port: number
   database: string
   username: string
+  password?: string
   readOnly: boolean
   topology?: 'standalone' | 'replicaSet' | 'masterSlave'
   replicaHosts?: ReplicaHost[]
@@ -184,6 +185,7 @@ export function parseYamlConnections(yaml: string): YamlConnectionConfig[] {
       port: Number(c.port ?? 0),
       database: String(c.database ?? ''),
       username: String(c.username ?? 'app'),
+      password: c.password ? String(c.password) : undefined,
       readOnly: Boolean(c.readOnly ?? false),
       topology: (c.topology as YamlConnectionConfig['topology']) ?? 'standalone',
       replicaHosts: Array.isArray(c.replicaHosts)
@@ -219,6 +221,9 @@ export function serializeYamlConnections(configs: YamlConnectionConfig[]): strin
     lines.push(`    port: ${serializeValue(c.port)}`)
     lines.push(`    database: ${serializeValue(c.database)}`)
     lines.push(`    username: ${serializeValue(c.username)}`)
+    if (c.password) {
+      lines.push(`    password: ${serializeValue(c.password)}`)
+    }
     lines.push(`    readOnly: ${serializeValue(c.readOnly)}`)
     if (c.topology && c.topology !== 'standalone') {
       lines.push(`    topology: ${serializeValue(c.topology)}`)

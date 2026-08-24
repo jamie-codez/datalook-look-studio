@@ -111,6 +111,7 @@ export interface Connection {
   port: number
   database: string
   username: string
+  password: string
   status: ConnectionStatus
   readOnly: boolean
   schemas: SchemaMeta[]

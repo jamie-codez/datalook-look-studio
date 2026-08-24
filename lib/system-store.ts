@@ -9,6 +9,7 @@ import {
   DEFAULT_DB_HOST,
   DEFAULT_DB_PORT,
   DEFAULT_DB_USER,
+  DEFAULT_DB_PASSWORD,
   DEFAULT_DB_NAME,
   isProduction,
 } from './env'
@@ -216,6 +217,7 @@ export function buildSystemConnection(
     port: DEFAULT_DB_PORT || meta.defaultPort,
     database: DEFAULT_DB_NAME || SYSTEM_DB_NAME,
     username: DEFAULT_DB_USER,
+    password: DEFAULT_DB_PASSWORD,
     status: 'connected',
     readOnly: false,
     accent: meta.accent,

@@ -25,12 +25,13 @@ interface Credentials {
   port: number
   database: string
   username: string
+  password: string
 }
 
 interface StoredConnection {
   id: string
   /** connection without credential fields */
-  clear: Omit<Connection, 'host' | 'port' | 'database' | 'username'>
+  clear: Omit<Connection, 'host' | 'port' | 'database' | 'username' | 'password'>
   /** encrypted credential blob (iv.ciphertext) */
   enc: string
 }
@@ -56,8 +57,8 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
 
 /** Encrypt credentials and persist a single connection. */
 export async function saveConnection(conn: Connection): Promise<void> {
-  const { host, port, database, username, ...clear } = conn
-  const creds: Credentials = { host, port, database, username }
+  const { host, port, database, username, password, ...clear } = conn
+  const creds: Credentials = { host, port, database, username, password }
   const enc = await encryptJson(creds)
   const stored: StoredConnection = { id: conn.id, clear, enc }
   await idbPut(CONNECTION_STORE, stored)

@@ -41,6 +41,7 @@ interface NewConnectionInput {
   port: number
   database: string
   username: string
+  password: string
   readOnly: boolean
   /** shared = team connection with grants; personal = owner-only */
   scope: Connection['scope']
@@ -261,6 +262,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         port: input.port,
         database: input.database,
         username: input.username,
+        password: input.password,
         status: 'connected',
         readOnly: input.readOnly,
         accent: driverAccent(input.driver),

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { toast } from 'sonner'
-import { Plus, Users, Lock, Trash2, Server, FileUp, FileDown, ChevronDown } from 'lucide-react'
+import { Plus, Users, Lock, Trash2, Server, FileUp, FileDown, ChevronDown, Eye, EyeOff } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,12 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+  InputGroupButton,
+} from '@/components/ui/input-group'
 import {
   Field,
   FieldGroup,
@@ -62,6 +68,8 @@ export function NewConnectionDialog({
   const [port, setPort] = React.useState('5432')
   const [database, setDatabase] = React.useState('')
   const [username, setUsername] = React.useState('')
+  const [password, setPassword] = React.useState('')
+  const [showPassword, setShowPassword] = React.useState(false)
   const [readOnly, setReadOnly] = React.useState<'rw' | 'ro'>('rw')
   const [scope, setScope] = React.useState<'shared' | 'personal'>(
     canCreateShared ? 'shared' : 'personal',
@@ -94,6 +102,7 @@ export function NewConnectionDialog({
         setPort(String(c.port))
         setDatabase(c.database)
         setUsername(c.username)
+        if (c.password) setPassword(c.password)
         setReadOnly(c.readOnly ? 'ro' : 'rw')
         if (c.topology) setTopology(c.topology)
         if (c.replicaHosts) setReplicaHosts(c.replicaHosts)
@@ -116,6 +125,7 @@ export function NewConnectionDialog({
       port: Number.parseInt(port, 10) || 0,
       database: database || '',
       username: username || 'app',
+      password: password || undefined,
       readOnly: readOnly === 'ro',
       topology,
       replicaHosts: topology !== 'standalone' ? replicaHosts.filter((r) => r.host.trim()) : undefined,
@@ -145,6 +155,7 @@ export function NewConnectionDialog({
       setPort(String(c.port))
       setDatabase(c.database)
       setUsername(c.username)
+      if (c.password) setPassword(c.password)
       setReadOnly(c.readOnly ? 'ro' : 'rw')
       if (c.topology) setTopology(c.topology)
       if (c.replicaHosts) setReplicaHosts(c.replicaHosts)
@@ -161,6 +172,7 @@ export function NewConnectionDialog({
     setPort('5432')
     setDatabase('')
     setUsername('')
+    setPassword('')
     setReadOnly('rw')
     setScope(canCreateShared ? 'shared' : 'personal')
     setGrants([])
@@ -195,8 +207,8 @@ export function NewConnectionDialog({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (submitting) return
-    if (!name.trim() || !host.trim() || !database.trim()) {
-      toast.error('Please fill in connection name, host, and database.')
+    if (!name.trim() || !host.trim()) {
+      toast.error('Please fill in connection name and host.')
       return
     }
     setSubmitting(true)
@@ -209,6 +221,7 @@ export function NewConnectionDialog({
       port: Number.parseInt(port, 10) || 0,
       database: database.trim(),
       username: username.trim() || 'app',
+      password: password,
       readOnly: readOnly === 'ro',
       scope: effectiveScope,
       grants: effectiveScope === 'shared' ? grants : [],
@@ -388,13 +401,16 @@ export function NewConnectionDialog({
 
             <Field orientation="responsive">
               <Field>
-                <FieldLabel htmlFor="conn-db">Database</FieldLabel>
+                <FieldLabel htmlFor="conn-db">Database <span className="text-muted-foreground font-normal">(optional)</span></FieldLabel>
                 <Input
                   id="conn-db"
                   value={database}
                   onChange={(e) => setDatabase(e.target.value)}
-                  placeholder="appdb"
+                  placeholder="Leave empty to browse all databases"
                 />
+                <FieldDescription>
+                  If omitted, all databases on the server will be available for selection.
+                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="conn-user">Username</FieldLabel>
@@ -405,6 +421,29 @@ export function NewConnectionDialog({
                   placeholder="app"
                 />
               </Field>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="conn-pass">Password</FieldLabel>
+              <InputGroup>
+                <InputGroupInput
+                  id="conn-pass"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password"
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton
+                    type="button"
+                    size="icon-xs"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword((v) => !v)}
+                  >
+                    {showPassword ? <EyeOff /> : <Eye />}
+                  </InputGroupButton>
+                </InputGroupAddon>
+              </InputGroup>
             </Field>
             </FieldGroup>
             </TabsContent>
