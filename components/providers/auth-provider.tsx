@@ -79,6 +79,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [onboarding, setOnboarding] = React.useState(false)
 
   // In production, hydrate users/customRoles/password from IndexedDB.
+  // When SKIP_ONBOARDING is true, check if admin user exists — create if not,
+  // log either way — before marking the app as hydrated.
   React.useEffect(() => {
     if (!isProduction) {
       setHydrated(true)
@@ -93,13 +95,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ])
       if (cancelled) return
 
-      if (persistedUsers.length > 0) {
+      if (persistedRoles.length > 0) setCustomRoles(persistedRoles)
+
+      if (SKIP_ONBOARDING) {
+        // Check if a user with the configured admin email already exists.
+        const adminEmail = DEFAULT_ADMIN_EMAIL.toLowerCase()
+        const existingAdmin = persistedUsers.find(
+          (u) => u.email.toLowerCase() === adminEmail,
+        )
+
+        if (existingAdmin) {
+          console.info(
+            `[Datalook] Admin user already exists (${adminEmail}) — skipping creation.`,
+          )
+          setUsers(persistedUsers)
+          if (persistedPassword) setAdminPassword(persistedPassword)
+        } else {
+          console.info(
+            `[Datalook] No admin user found for ${adminEmail} — creating from env config.`,
+          )
+          const admin = envAdminUser()
+          const newUsers = [...persistedUsers, admin]
+          setUsers(newUsers)
+          await savePersistedUsers(newUsers)
+          await saveAdminPassword(DEFAULT_ADMIN_PASSWORD)
+        }
+      } else if (persistedUsers.length > 0) {
         setUsers(persistedUsers)
         if (persistedPassword) setAdminPassword(persistedPassword)
-      } else if (!SKIP_ONBOARDING) {
+      } else {
+        // No users and no env config — show onboarding.
         setOnboarding(true)
       }
-      if (persistedRoles.length > 0) setCustomRoles(persistedRoles)
+
       setHydrated(true)
     })()
     return () => { cancelled = true }

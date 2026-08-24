@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { DRIVER_LIST, driverMeta } from '@/lib/drivers'
+import { isProduction, DEFAULT_DB_DRIVER } from '@/lib/env'
 import type { DriverId } from '@/lib/types'
 
 type Family = 'sql' | 'nosql'
@@ -79,13 +80,19 @@ interface OnboardingScreenProps {
 }
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
+  const envMeta = driverMeta(DEFAULT_DB_DRIVER)
+  const envFamily: Family = envMeta.category === 'sql' ? 'sql' : 'nosql'
   const [step, setStep] = React.useState<1 | 2>(1)
   const [name, setName] = React.useState('')
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [showPassword, setShowPassword] = React.useState(false)
-  const [family, setFamily] = React.useState<Family>('sql')
-  const [driver, setDriver] = React.useState<DriverId>('sqlite')
+  const [family, setFamily] = React.useState<Family>(
+    isProduction ? envFamily : 'sql',
+  )
+  const [driver, setDriver] = React.useState<DriverId>(
+    isProduction ? DEFAULT_DB_DRIVER : 'sqlite',
+  )
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 

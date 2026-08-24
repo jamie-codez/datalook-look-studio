@@ -10,6 +10,7 @@ import {
   DEFAULT_DB_PORT,
   DEFAULT_DB_USER,
   DEFAULT_DB_NAME,
+  isProduction,
 } from './env'
 
 export const SYSTEM_CONNECTION_ID = 'conn-system'
@@ -234,7 +235,7 @@ export function buildSystemConnection(
           id: `${schemaId}.${d.name}`,
           name: d.name,
           kind: d.kind,
-          rowCount: d.rowCount,
+          rowCount: isProduction ? 0 : d.rowCount,
           columns: d.columns,
         })),
       },

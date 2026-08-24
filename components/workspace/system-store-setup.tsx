@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { DRIVER_LIST, driverMeta } from '@/lib/drivers'
+import { isProduction, DEFAULT_DB_DRIVER } from '@/lib/env'
 import type { DriverId } from '@/lib/types'
 
 type Family = 'sql' | 'nosql'
@@ -55,8 +56,14 @@ interface SystemStoreSetupProps {
 }
 
 export function SystemStoreSetup({ onComplete }: SystemStoreSetupProps) {
-  const [family, setFamily] = React.useState<Family>('sql')
-  const [driver, setDriver] = React.useState<DriverId>('sqlite')
+  const envMeta = driverMeta(DEFAULT_DB_DRIVER)
+  const envFamily: Family = envMeta.category === 'sql' ? 'sql' : 'nosql'
+  const [family, setFamily] = React.useState<Family>(
+    isProduction ? envFamily : 'sql',
+  )
+  const [driver, setDriver] = React.useState<DriverId>(
+    isProduction ? DEFAULT_DB_DRIVER : 'sqlite',
+  )
   const [pending, setPending] = React.useState(false)
 
   const familyDrivers = family === 'sql' ? SQL_DRIVERS : NOSQL_DRIVERS
