@@ -59,7 +59,9 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
     window.setTimeout(() => {
       const ok = onLogin(email.trim().toLowerCase(), password)
       if (!ok) {
-        setError('Invalid email or password. Try a demo account below.')
+        setError(isProduction
+          ? 'Invalid email or password.'
+          : 'Invalid email or password. Try a demo account below.')
         setPending(false)
       }
       // On success the auth provider swaps this screen for the workspace,

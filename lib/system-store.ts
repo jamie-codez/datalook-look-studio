@@ -4,7 +4,13 @@
 
 import type { Column, Connection, DriverId, TableKind } from './types'
 import { driverMeta } from './drivers'
-import { SYSTEM_DB_NAME } from './env'
+import {
+  SYSTEM_DB_NAME,
+  DEFAULT_DB_HOST,
+  DEFAULT_DB_PORT,
+  DEFAULT_DB_USER,
+  DEFAULT_DB_NAME,
+} from './env'
 
 export const SYSTEM_CONNECTION_ID = 'conn-system'
 
@@ -205,10 +211,10 @@ export function buildSystemConnection(
     id: SYSTEM_CONNECTION_ID,
     name: `System Store — ${meta.label}`,
     driver,
-    host: 'internal://datalook-system',
-    port: meta.defaultPort,
-    database: SYSTEM_DB_NAME,
-    username: 'system',
+    host: DEFAULT_DB_HOST || 'internal://datalook-system',
+    port: DEFAULT_DB_PORT || meta.defaultPort,
+    database: DEFAULT_DB_NAME || SYSTEM_DB_NAME,
+    username: DEFAULT_DB_USER,
     status: 'connected',
     readOnly: false,
     accent: meta.accent,

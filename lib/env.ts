@@ -51,3 +51,32 @@ export const AES_KEY_B64 = process.env.NEXT_PUBLIC_AES_KEY?.trim() || ''
 /** Name of the system database created on first run in production. */
 export const SYSTEM_DB_NAME =
   process.env.NEXT_PUBLIC_SYSTEM_DB_NAME?.trim() || 'datalook-studio'
+
+/** Default DB connection credentials for the system store (production). */
+export const DEFAULT_DB_HOST =
+  process.env.NEXT_PUBLIC_DEFAULT_DB_HOST?.trim() || 'localhost'
+
+export const DEFAULT_DB_PORT = (() => {
+  const raw = process.env.NEXT_PUBLIC_DEFAULT_DB_PORT?.trim()
+  if (!raw) return 0
+  const n = parseInt(raw, 10)
+  return Number.isNaN(n) ? 0 : n
+})()
+
+export const DEFAULT_DB_USER =
+  process.env.NEXT_PUBLIC_DEFAULT_DB_USER?.trim() || 'system'
+
+export const DEFAULT_DB_PASSWORD =
+  process.env.NEXT_PUBLIC_DEFAULT_DB_PASSWORD?.trim() || ''
+
+export const DEFAULT_DB_NAME =
+  process.env.NEXT_PUBLIC_DEFAULT_DB_NAME?.trim() || SYSTEM_DB_NAME
+
+/**
+ * When true, the app seeds the admin from the env vars above and skips
+ * the interactive onboarding flow. When false (or unset), production
+ * deployments show an onboarding screen where the user sets up the
+ * admin account and system store themselves.
+ */
+export const SKIP_ONBOARDING =
+  process.env.NEXT_PUBLIC_SKIP_ONBOARDING === 'true'

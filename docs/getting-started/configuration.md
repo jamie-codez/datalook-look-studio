@@ -12,6 +12,12 @@ All configuration is via environment variables. Since Datalook Studio is a clien
 | `NEXT_PUBLIC_DEFAULT_ADMIN_EMAIL` | `admin@yourcompany.com` | Initial admin email |
 | `NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD` | `datalook` | Initial admin password |
 | `NEXT_PUBLIC_SYSTEM_DB_NAME` | `datalook-studio` | System database name |
+| `NEXT_PUBLIC_DEFAULT_DB_HOST` | `localhost` | System store DB host |
+| `NEXT_PUBLIC_DEFAULT_DB_PORT` | _(driver default)_ | System store DB port |
+| `NEXT_PUBLIC_DEFAULT_DB_USER` | `system` | System store DB username |
+| `NEXT_PUBLIC_DEFAULT_DB_PASSWORD` | _(empty)_ | System store DB password |
+| `NEXT_PUBLIC_DEFAULT_DB_NAME` | _(same as SYSTEM_DB_NAME)_ | System store DB name |
+| `NEXT_PUBLIC_SKIP_ONBOARDING` | _(unset)_ | When `true`, seeds admin from env vars and skips onboarding. When unset, shows interactive onboarding on first run. |
 | `NEXT_PUBLIC_AES_KEY` | _(auto-generated)_ | Base64-encoded 256-bit AES key for credential encryption |
 
 ## Environment modes

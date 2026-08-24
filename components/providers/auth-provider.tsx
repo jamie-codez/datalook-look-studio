@@ -3,32 +3,45 @@
 import * as React from 'react'
 import { MOCK_USERS, EXTRA_TEAM_USERS } from '@/lib/mock-data'
 import { can, permissionsFor, type Permission } from '@/lib/rbac'
-import type { CustomRole, Role, User } from '@/lib/types'
+import type { CustomRole, Role, User, DriverId } from '@/lib/types'
 import { LoginScreen } from '@/components/auth/login-screen'
+import { OnboardingScreen } from '@/components/auth/onboarding-screen'
 import {
   isProduction,
+  SKIP_ONBOARDING,
   DEFAULT_ADMIN_NAME,
   DEFAULT_ADMIN_EMAIL,
   DEFAULT_ADMIN_PASSWORD,
 } from '@/lib/env'
+import {
+  loadPersistedUsers,
+  savePersistedUsers,
+  loadPersistedCustomRoles,
+  savePersistedCustomRoles,
+  loadAdminPassword,
+  saveAdminPassword,
+} from '@/lib/persistence'
 
-/** Shared demo password accepted for every seeded account. */
-const DEMO_PASSWORD = isProduction ? DEFAULT_ADMIN_PASSWORD : 'datalook'
+function initialsFrom(name: string) {
+  return name
+    .split(/\s+/)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
 
-function initialUsers(): User[] {
-  if (isProduction) {
-    // Production starts from a clean slate with a single default admin;
-    // more users are added from the Admin console.
-    return [
-      {
-        id: 'u-admin',
-        name: DEFAULT_ADMIN_NAME,
-        email: DEFAULT_ADMIN_EMAIL.toLowerCase(),
-        role: 'Admin',
-        initials: initialsFrom(DEFAULT_ADMIN_NAME),
-      },
-    ]
+function envAdminUser(): User {
+  return {
+    id: 'u-admin',
+    name: DEFAULT_ADMIN_NAME,
+    email: DEFAULT_ADMIN_EMAIL.toLowerCase(),
+    role: 'Admin',
+    initials: initialsFrom(DEFAULT_ADMIN_NAME),
   }
+}
+
+function devUsers(): User[] {
   return [...MOCK_USERS, ...EXTRA_TEAM_USERS]
 }
 
@@ -53,24 +66,62 @@ interface AuthContextValue {
 
 const AuthContext = React.createContext<AuthContextValue | null>(null)
 
-function initialsFrom(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [users, setUsers] = React.useState<User[]>(initialUsers)
+  const [users, setUsers] = React.useState<User[]>(() =>
+    isProduction ? (SKIP_ONBOARDING ? [envAdminUser()] : []) : devUsers(),
+  )
   const [customRoles, setCustomRoles] = React.useState<CustomRole[]>([])
-  // Logged out by default so the login screen greets the user first.
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null)
+  const [adminPassword, setAdminPassword] = React.useState(
+    isProduction ? DEFAULT_ADMIN_PASSWORD : 'datalook',
+  )
+  const [hydrated, setHydrated] = React.useState(false)
+  const [onboarding, setOnboarding] = React.useState(false)
+
+  // In production, hydrate users/customRoles/password from IndexedDB.
+  React.useEffect(() => {
+    if (!isProduction) {
+      setHydrated(true)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const [persistedUsers, persistedRoles, persistedPassword] = await Promise.all([
+        loadPersistedUsers(),
+        loadPersistedCustomRoles(),
+        loadAdminPassword(),
+      ])
+      if (cancelled) return
+
+      if (persistedUsers.length > 0) {
+        setUsers(persistedUsers)
+        if (persistedPassword) setAdminPassword(persistedPassword)
+      } else if (!SKIP_ONBOARDING) {
+        setOnboarding(true)
+      }
+      if (persistedRoles.length > 0) setCustomRoles(persistedRoles)
+      setHydrated(true)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Persist to IndexedDB in production.
+  React.useEffect(() => {
+    if (!isProduction || !hydrated) return
+    savePersistedUsers(users)
+  }, [users, isProduction, hydrated])
+
+  React.useEffect(() => {
+    if (!isProduction || !hydrated) return
+    savePersistedCustomRoles(customRoles)
+  }, [customRoles, isProduction, hydrated])
+
+  React.useEffect(() => {
+    if (!isProduction || !hydrated) return
+    saveAdminPassword(adminPassword)
+  }, [adminPassword, isProduction, hydrated])
 
   const currentUser = users.find((u) => u.id === currentUserId) ?? null
-
-  const [demoPassword, setDemoPassword] = React.useState(DEMO_PASSWORD)
 
   const switchUser = React.useCallback((userId: string) => {
     setCurrentUserId(userId)
@@ -79,11 +130,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = React.useCallback(
     (email: string, password: string) => {
       const match = users.find((u) => u.email.toLowerCase() === email)
-      if (!match || password !== demoPassword) return false
+      if (!match || password !== adminPassword) return false
       setCurrentUserId(match.id)
       return true
     },
-    [users, demoPassword],
+    [users, adminPassword],
   )
 
   const logout = React.useCallback(() => {
@@ -114,9 +165,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUsers((prev) => prev.filter((u) => u.id !== userId))
   }, [])
 
+  const handleOnboarding = React.useCallback(
+    async (data: {
+      adminName: string
+      adminEmail: string
+      adminPassword: string
+      systemDriver: DriverId
+    }) => {
+      const admin: User = {
+        id: 'u-admin',
+        name: data.adminName,
+        email: data.adminEmail,
+        role: 'Admin',
+        initials: initialsFrom(data.adminName),
+      }
+      setUsers([admin])
+      setAdminPassword(data.adminPassword)
+      setOnboarding(false)
+      setCurrentUserId(admin.id)
+    },
+    [],
+  )
+
   const updateCurrentUser = React.useCallback(
     (updates: { name?: string; email?: string; password?: string }) => {
-      if (updates.password) setDemoPassword(updates.password)
+      if (updates.password) setAdminPassword(updates.password)
       setUsers((prev) =>
         prev.map((u) =>
           u.id === currentUserId
@@ -205,9 +278,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ],
   )
 
-  // Gate the entire workspace behind sign-in. While logged out, the login
-  // screen is the only thing rendered, which also guarantees `currentUser`
-  // is non-null for every consumer of this context.
+  // Loading state while IndexedDB hydrates in production.
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+          Loading…
+        </div>
+      </div>
+    )
+  }
+
+  // Production onboarding: no users set up and no env-configured admin.
+  if (onboarding) {
+    return <OnboardingScreen onComplete={handleOnboarding} />
+  }
+
+  // Gate the entire workspace behind sign-in.
   if (!value) {
     return <LoginScreen users={users} onLogin={login} />
   }

@@ -16,19 +16,24 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_ENV: production
+        NEXT_PUBLIC_DEFAULT_DB_DRIVER: postgres
+        NEXT_PUBLIC_DEFAULT_ADMIN_NAME: Admin
+        NEXT_PUBLIC_DEFAULT_ADMIN_EMAIL: admin@datalook.com
+        NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD: Datalook@123
+        NEXT_PUBLIC_SYSTEM_DB_NAME: datalook-studio
+        NEXT_PUBLIC_DEFAULT_DB_HOST: postgres
+        NEXT_PUBLIC_DEFAULT_DB_PORT: "5432"
+        NEXT_PUBLIC_DEFAULT_DB_USER: app
+        NEXT_PUBLIC_DEFAULT_DB_PASSWORD: app
+        NEXT_PUBLIC_DEFAULT_DB_NAME: app
+        NEXT_PUBLIC_AES_KEY: secret
+        NEXT_PUBLIC_SKIP_ONBOARDING: "true"
     container_name: cbd-app
     restart: unless-stopped
     ports:
       - '3000:3000'
-    environment:
-      NEXT_PUBLIC_APP_ENV: production
-      NEXT_PUBLIC_DEFAULT_DB_DRIVER: postgres
-      NEXT_PUBLIC_DEFAULT_ADMIN_NAME: Admin
-      NEXT_PUBLIC_DEFAULT_ADMIN_EMAIL: admin@datalook.com
-      NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD: Datalook@123
-      NEXT_PUBLIC_SYSTEM_DB_NAME: datalook-studio
-      # Optional: base64-encoded 256-bit AES key for encrypting credentials at rest
-      NEXT_PUBLIC_AES_KEY: secret
     depends_on:
       - postgres
 

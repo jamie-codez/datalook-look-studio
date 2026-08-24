@@ -29,7 +29,7 @@ import { SystemStoreSetup } from '@/components/workspace/system-store-setup'
 import { LoaderCircle } from 'lucide-react'
 import type { DriverId } from '@/lib/types'
 import { useAuth } from './auth-provider'
-import { isProduction, DEFAULT_DB_DRIVER } from '@/lib/env'
+import { isProduction, SKIP_ONBOARDING, DEFAULT_DB_DRIVER } from '@/lib/env'
 
 let idCounter = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${idCounter++}`
@@ -110,9 +110,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       ])
       if (cancelled) return
 
-      // Production auto-configures the system store from the env-provided
-      // driver instead of showing the interactive first-run picker.
-      if (isProduction && !cfg.initialized) {
+      // Production with SKIP_ONBOARDING auto-configures the system store from
+      // the env-provided driver. Without SKIP_ONBOARDING, the system store
+      // setup screen is shown on first run (after onboarding completes).
+      if (isProduction && SKIP_ONBOARDING && !cfg.initialized) {
         cfg = {
           initialized: true,
           systemStore: { driver: DEFAULT_DB_DRIVER, category: driverMeta(DEFAULT_DB_DRIVER).category },

@@ -4,13 +4,14 @@
 // encrypted via the AES-GCM master key; the rest of the connection metadata is
 // stored in clear so the tree can render without decrypting everything.
 
-import type { AuditLogItem, Connection, DriverCategory, DriverId } from './types'
+import type { AuditLogItem, Connection, DriverCategory, DriverId, User, CustomRole } from './types'
 import { decryptJson, encryptJson } from './crypto'
 import {
   AUDIT_STORE,
   CONNECTION_STORE,
   META_STORE,
   QUERY_STORE,
+  USERS_STORE,
   idbDelete,
   idbGet,
   idbGetAll,
@@ -134,4 +135,36 @@ export async function clearAuditLog(): Promise<void> {
   for (const e of entries) {
     await idbDelete(AUDIT_STORE, e.id)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Users & custom roles — persisted so production survives page reloads
+// ---------------------------------------------------------------------------
+
+const USERS_KEY = 'users'
+const CUSTOM_ROLES_KEY = 'custom-roles'
+const ADMIN_PASSWORD_KEY = 'admin-password'
+
+export async function loadPersistedUsers(): Promise<User[]> {
+  return (await idbGet<User[]>(META_STORE, USERS_KEY)) ?? []
+}
+
+export async function savePersistedUsers(users: User[]): Promise<void> {
+  await idbPut(META_STORE, users, USERS_KEY)
+}
+
+export async function loadPersistedCustomRoles(): Promise<CustomRole[]> {
+  return (await idbGet<CustomRole[]>(META_STORE, CUSTOM_ROLES_KEY)) ?? []
+}
+
+export async function savePersistedCustomRoles(roles: CustomRole[]): Promise<void> {
+  await idbPut(META_STORE, roles, CUSTOM_ROLES_KEY)
+}
+
+export async function loadAdminPassword(): Promise<string | undefined> {
+  return idbGet<string>(META_STORE, ADMIN_PASSWORD_KEY)
+}
+
+export async function saveAdminPassword(password: string): Promise<void> {
+  await idbPut(META_STORE, password, ADMIN_PASSWORD_KEY)
 }
