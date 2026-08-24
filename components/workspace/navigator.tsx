@@ -22,6 +22,7 @@ import {
   MoreHorizontal,
   Info,
   Play,
+  Pencil,
   Trash2,
   Server,
   Lock,
@@ -44,6 +45,7 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { useWorkspace } from '@/components/providers/workspace-provider'
 import { ManageAccessDialog } from './manage-access-dialog'
+import { NewConnectionDialog } from './new-connection-dialog'
 import { HelpDialog } from './help-dialog'
 import { connectionCapabilities, connectionRoleLabel } from '@/lib/rbac'
 import { containerLabel, entityPlural } from '@/lib/drivers'
@@ -427,6 +429,7 @@ function ConnectionBranch({
     useWorkspace()
   const [expanded, setExpanded] = React.useState(false)
   const [manageOpen, setManageOpen] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(false)
 
   const connMatches = !filter || connection.name.toLowerCase().includes(filter.toLowerCase())
   const hasMatchingSchema = filter
@@ -470,6 +473,11 @@ function ConnectionBranch({
 
   return (
     <div className="mb-0.5">
+      <NewConnectionDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        editingConnection={connection}
+      />
       {isShared && (
         <ManageAccessDialog
           connection={connection}
@@ -578,6 +586,10 @@ function ConnectionBranch({
                 {caps?.canDelete && (
                   <>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                      <Pencil />
+                      Edit connection
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
                       onClick={handleRemove}

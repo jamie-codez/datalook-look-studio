@@ -14,11 +14,13 @@ import {
   DEFAULT_ADMIN_PASSWORD,
 } from '@/lib/env'
 import {
+  loadPersistedUsers,
   savePersistedUsers,
+  loadPersistedCustomRoles,
   savePersistedCustomRoles,
+  loadAdminPassword,
   saveAdminPassword,
 } from '@/lib/persistence'
-import { initSystemStore } from '@/lib/init-system'
 
 function initialsFrom(name: string) {
   return name
@@ -76,9 +78,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = React.useState(false)
   const [onboarding, setOnboarding] = React.useState(false)
 
-  // In production, run the full system initialization sequence first
-  // (creates DB, schema, admin user, system connection, first audit log),
-  // then hydrate from the results. In development, hydrate immediately.
+  // In production, hydrate users/customRoles/password from IndexedDB.
+  // If SKIP_ONBOARDING is true and no users exist, seed admin from env vars.
+  // If SKIP_ONBOARDING is false and no users exist, show onboarding screen.
   React.useEffect(() => {
     if (!isProduction) {
       setHydrated(true)
@@ -86,14 +88,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     let cancelled = false
     ;(async () => {
-      const result = await initSystemStore()
-      if (cancelled || !result) return
+      const [persistedUsers, persistedRoles, persistedPassword] = await Promise.all([
+        loadPersistedUsers(),
+        loadPersistedCustomRoles(),
+        loadAdminPassword(),
+      ])
+      if (cancelled) return
 
-      setUsers(result.users)
-      setCustomRoles(result.customRoles)
-      setAdminPassword(result.adminPassword)
+      if (persistedRoles.length > 0) setCustomRoles(persistedRoles)
 
-      if (result.users.length === 0 && !SKIP_ONBOARDING) {
+      if (persistedUsers.length > 0) {
+        setUsers(persistedUsers)
+        if (persistedPassword) setAdminPassword(persistedPassword)
+      } else if (SKIP_ONBOARDING) {
+        const admin = envAdminUser()
+        setUsers([admin])
+        await savePersistedUsers([admin])
+        await saveAdminPassword(DEFAULT_ADMIN_PASSWORD)
+      } else {
         setOnboarding(true)
       }
 

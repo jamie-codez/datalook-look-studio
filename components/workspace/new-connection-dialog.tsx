@@ -44,18 +44,20 @@ import {
   driverMeta,
   driversByCategory,
 } from '@/lib/drivers'
-import type { ConnectionGrant, DriverId, ReplicaHost } from '@/lib/types'
+import type { Connection, ConnectionGrant, DriverId, ReplicaHost } from '@/lib/types'
 import { ShieldCheck } from 'lucide-react'
 import { parseYamlConnections, serializeYamlConnections, type YamlConnectionConfig } from '@/lib/yaml-connections'
 
 export function NewConnectionDialog({
   open,
   onOpenChange,
+  editingConnection,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  editingConnection?: Connection | null
 }) {
-  const { addConnection, logAudit } = useWorkspace()
+  const { addConnection, updateConnection, logAudit } = useWorkspace()
   const { currentUser, users } = useAuth()
 
   // Only platform Admins may create shared (team) connections; everyone else
@@ -81,6 +83,29 @@ export function NewConnectionDialog({
   const [showYaml, setShowYaml] = React.useState(false)
   const [yamlText, setYamlText] = React.useState('')
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+  const isEditing = !!editingConnection
+
+  // When opening, populate form from editingConnection if provided.
+  React.useEffect(() => {
+    if (!open) return
+    if (editingConnection) {
+      setName(editingConnection.name)
+      setDriver(editingConnection.driver)
+      setHost(editingConnection.host)
+      setPort(String(editingConnection.port))
+      setDatabase(editingConnection.database)
+      setUsername(editingConnection.username)
+      setPassword(editingConnection.password)
+      setReadOnly(editingConnection.readOnly ? 'ro' : 'rw')
+      setScope(editingConnection.scope)
+      setGrants(editingConnection.grants)
+      setTopology(editingConnection.topology ?? 'standalone')
+      setReplicaHosts(editingConnection.replicaHosts ?? [])
+    } else {
+      reset()
+    }
+  }, [open, editingConnection])
 
   function handleYamlImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -214,7 +239,7 @@ export function NewConnectionDialog({
     setSubmitting(true)
     const effectiveScope = canCreateShared ? scope : 'personal'
     const validReplicas = replicaHosts.filter((r) => r.host.trim())
-    addConnection({
+    const connInput = {
       name: name.trim(),
       driver,
       host: host.trim(),
@@ -227,18 +252,21 @@ export function NewConnectionDialog({
       grants: effectiveScope === 'shared' ? grants : [],
       topology,
       replicaHosts: topology !== 'standalone' && validReplicas.length > 0 ? validReplicas : undefined,
-    })
-    logAudit(
-      `Create ${effectiveScope} connection`,
-      name.trim(),
-      'allowed',
-    )
-    toast.success(`Connection "${name.trim()}" created`, {
-      description:
-        effectiveScope === 'shared'
-          ? `Shared · ${grants.length} ${grants.length === 1 ? 'member' : 'members'} assigned`
-          : 'Personal · visible only to you',
-    })
+    }
+    if (isEditing && editingConnection) {
+      updateConnection(editingConnection.id, connInput)
+      logAudit(`Update ${effectiveScope} connection`, name.trim(), 'allowed')
+      toast.success(`Connection "${name.trim()}" updated`)
+    } else {
+      addConnection(connInput)
+      logAudit(`Create ${effectiveScope} connection`, name.trim(), 'allowed')
+      toast.success(`Connection "${name.trim()}" created`, {
+        description:
+          effectiveScope === 'shared'
+            ? `Shared · ${grants.length} ${grants.length === 1 ? 'member' : 'members'} assigned`
+            : 'Personal · visible only to you',
+      })
+    }
     reset()
     onOpenChange(false)
   }
@@ -247,7 +275,7 @@ export function NewConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New connection</DialogTitle>
+          <DialogTitle>{isEditing ? 'Edit connection' : 'New connection'}</DialogTitle>
           <DialogDescription>
             {canCreateShared
               ? 'Configure a data source, then choose whether to share it with the team or keep it private to you.'
@@ -635,7 +663,7 @@ export function NewConnectionDialog({
           </Button>
           <Button type="submit" form="new-connection-form" disabled={submitting}>
             <Plus data-icon="inline-start" />
-            {submitting ? 'Creating…' : 'Create connection'}
+            {submitting ? (isEditing ? 'Saving…' : 'Creating…') : isEditing ? 'Save changes' : 'Create connection'}
           </Button>
         </DialogFooter>
       </DialogContent>

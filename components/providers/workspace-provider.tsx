@@ -68,6 +68,7 @@ interface WorkspaceContextValue {
   updateTabSql: (tabId: string, sql: string) => void
 
   addConnection: (input: NewConnectionInput) => void
+  updateConnection: (id: string, input: NewConnectionInput) => void
   removeConnection: (connectionId: string) => void
   /** replace the grant list for a shared connection */
   updateConnectionGrants: (
@@ -253,16 +254,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         database: input.database,
         username: input.username,
         password: input.password,
-        status: 'connected',
+        status: isProduction ? 'disconnected' : 'connected',
         readOnly: input.readOnly,
         accent: driverAccent(input.driver),
-        version: 'Simulated 1.0',
+        version: '',
         uptimeHours: 0,
         scope: input.scope,
         ownerId: currentUser.id,
-        // Personal connections carry no grants; the owner already has full access.
         grants: input.scope === 'shared' ? input.grants : [],
-        // Credentials for user-created connections are persisted encrypted.
         encrypted: true,
         topology: input.topology,
         replicaHosts: input.replicaHosts,
@@ -276,10 +275,38 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         ],
       }
       setAllConnections((prev) => [...prev, connection])
-      // Persist with credentials encrypted at rest.
       void saveConnection(connection)
     },
     [currentUser.id],
+  )
+
+  const updateConnection = React.useCallback(
+    (id: string, input: NewConnectionInput) => {
+      setAllConnections((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c
+          const updated: Connection = {
+            ...c,
+            name: input.name,
+            driver: input.driver,
+            host: input.host,
+            port: input.port,
+            database: input.database,
+            username: input.username,
+            password: input.password,
+            readOnly: input.readOnly,
+            scope: input.scope,
+            grants: input.scope === 'shared' ? input.grants : [],
+            topology: input.topology,
+            replicaHosts: input.replicaHosts,
+            accent: driverAccent(input.driver),
+          }
+          void saveConnection(updated)
+          return updated
+        }),
+      )
+    },
+    [],
   )
 
   const removeConnection = React.useCallback((connectionId: string) => {
@@ -347,6 +374,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setActiveTab,
       updateTabSql,
       addConnection,
+      updateConnection,
       removeConnection,
       updateConnectionGrants,
       connectionRoleFor,
@@ -365,6 +393,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setActiveTab,
       updateTabSql,
       addConnection,
+      updateConnection,
       removeConnection,
       updateConnectionGrants,
       connectionRoleFor,

@@ -34,8 +34,18 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
+    environment:
+      PGHOST: postgres
+      PGPORT: '5432'
+      PGUSER: app
+      PGPASSWORD: app
+      SYSTEM_DB_NAME: datalook-studio
+      ADMIN_NAME: Admin
+      ADMIN_EMAIL: admin@datalook.com
+      ADMIN_PASSWORD: Datalook@123
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   # ---------------------------------------------------------------- SQL
   postgres:
@@ -50,6 +60,11 @@ services:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app']
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   mysql:
     image: mysql:8.4

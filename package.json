@@ -11,7 +11,8 @@
     "db:reset": "docker compose -f docker/docker-compose.yaml down -v",
     "prod:build": "docker compose -f docker/docker-compose.yaml build app",
     "prod:up": "docker compose -f docker/docker-compose.yaml up -d app",
-    "prod:down": "docker compose -f docker/docker-compose.yaml down"
+    "prod:down": "docker compose -f docker/docker-compose.yaml down",
+    "db:init": "npx tsx scripts/init-db.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -22,6 +23,7 @@
     "lucide-react": "^1.16.0",
     "next": "16.3.0",
     "next-themes": "^0.4.6",
+    "pg": "^8.13.0",
     "react": "^19",
     "react-dom": "^19",
     "react-resizable-panels": "^4.12.3",
@@ -34,10 +36,12 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/leaflet": "^1.9.22",
     "@types/node": "^24",
+    "@types/pg": "^8.11.10",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "postcss": "^8.5",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.19.0",
     "typescript": "5.7.3"
   }
 }
