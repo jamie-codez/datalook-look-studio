@@ -1,0 +1,150 @@
+version: '3.8'
+
+# Spins up one real instance of every database driver supported by
+# lib/drivers.ts (see DriverId) so connections created in the app's
+# "New Connection" dialog can point at something real on localhost.
+#
+# Usage:
+#   docker compose up -d        # start everything
+#   docker compose up -d postgres mongodb   # start a subset
+#   docker compose down -v      # stop and wipe volumes
+#
+# Note: SQLite is embedded/file-based and has no server process, so it
+# has no service here.
+
+services:
+  # ---------------------------------------------------------------- SQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: cbd-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mysql:
+    image: mysql:8.4
+    container_name: cbd-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+      MYSQL_DATABASE: app
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: cbd-mssql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: 'App!Passw0rd'
+    ports:
+      - '1433:1433'
+    volumes:
+      - mssql_data:/var/opt/mssql
+
+  cockroach:
+    image: cockroachdb/cockroach:latest-v23.2
+    container_name: cbd-cockroach
+    restart: unless-stopped
+    command: start-single-node --insecure
+    ports:
+      - '26257:26257'
+      - '8080:8080'
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: cbd-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: app
+      CLICKHOUSE_PASSWORD: app
+      CLICKHOUSE_DB: app
+    ports:
+      - '8123:8123'
+      - '9000:9000'
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+
+  # ------------------------------------------------------------ Document
+  mongodb:
+    image: mongo:7
+    container_name: cbd-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: app
+      MONGO_INITDB_ROOT_PASSWORD: app
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+
+  couchdb:
+    image: couchdb:3
+    container_name: cbd-couchdb
+    restart: unless-stopped
+    environment:
+      COUCHDB_USER: app
+      COUCHDB_PASSWORD: app
+    ports:
+      - '5984:5984'
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+
+  # ------------------------------------------------------------ Key-value
+  redis:
+    image: redis:7-alpine
+    container_name: cbd-redis
+    restart: unless-stopped
+    command: redis-server --requirepass app
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  # ---------------------------------------------------------- Wide-column
+  cassandra:
+    image: cassandra:5
+    container_name: cbd-cassandra
+    restart: unless-stopped
+    environment:
+      CASSANDRA_CLUSTER_NAME: cbd-cluster
+    ports:
+      - '9042:9042'
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    container_name: cbd-dynamodb
+    restart: unless-stopped
+    command: '-jar DynamoDBLocal.jar -sharedDb -dbPath /data'
+    working_dir: /home/dynamodblocal
+    ports:
+      - '8000:8000'
+    volumes:
+      - dynamodb_data:/data
+
+volumes:
+  postgres_data:
+  mysql_data:
+  mssql_data:
+  cockroach_data:
+  clickhouse_data:
+  mongodb_data:
+  couchdb_data:
+  redis_data:
+  cassandra_data:
+  dynamodb_data:
