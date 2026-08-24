@@ -9,6 +9,7 @@ import { decryptJson, encryptJson } from './crypto'
 import {
   CONNECTION_STORE,
   META_STORE,
+  QUERY_STORE,
   idbDelete,
   idbGet,
   idbGetAll,
@@ -78,4 +79,38 @@ export async function loadConnections(): Promise<Connection[]> {
     }
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Saved queries / pipelines — persisted per driver type
+// ---------------------------------------------------------------------------
+
+export interface SavedQuery {
+  id: string
+  /** driver this query/pipeline was written for */
+  driver: DriverId
+  /** connection id this query was saved from (optional) */
+  connectionId?: string
+  title: string
+  /** the query text (SQL, Mongo pipeline, Redis command, etc.) */
+  body: string
+  /** when the query was saved (ISO timestamp) */
+  savedAt: string
+}
+
+export async function saveSavedQuery(query: SavedQuery): Promise<void> {
+  await idbPut(QUERY_STORE, query)
+}
+
+export async function deleteSavedQuery(id: string): Promise<void> {
+  await idbDelete(QUERY_STORE, id)
+}
+
+export async function loadSavedQueries(): Promise<SavedQuery[]> {
+  return idbGetAll<SavedQuery>(QUERY_STORE)
+}
+
+export async function loadSavedQueriesByDriver(driver: DriverId): Promise<SavedQuery[]> {
+  const all = await idbGetAll<SavedQuery>(QUERY_STORE)
+  return all.filter((q) => q.driver === driver)
 }

@@ -10,6 +10,8 @@ import {
   ServerIcon,
   UsersIcon,
   ScrollTextIcon,
+  SettingsIcon,
+  LayoutDashboardIcon,
   XIcon,
 } from "lucide-react"
 import type { TabKind } from "@/lib/types"
@@ -21,6 +23,8 @@ const TAB_ICONS: Record<TabKind, typeof DatabaseIcon> = {
   "server-status": ServerIcon,
   users: UsersIcon,
   audit: ScrollTextIcon,
+  settings: SettingsIcon,
+  admin: LayoutDashboardIcon,
 }
 
 export function TabBar() {

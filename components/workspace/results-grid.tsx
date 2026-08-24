@@ -21,13 +21,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { toast } from "sonner"
 import { detectGeoSchema, collectPoints } from "@/lib/geo"
 import { MapPanel } from "@/components/workspace/map-panel"
@@ -258,8 +255,8 @@ export function ResultsGrid({ result, columnMeta }: ResultsGridProps) {
                               <ArrowDownIcon className="size-3 text-primary" aria-hidden />
                             ))}
                         </button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
+                        <Popover>
+                          <PopoverTrigger
                             render={
                               <Button
                                 variant="ghost"
@@ -274,45 +271,54 @@ export function ResultsGrid({ result, columnMeta }: ResultsGridProps) {
                           >
                             <ListFilterIcon />
                             <span className="sr-only">Filter {colName}</span>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
+                          </PopoverTrigger>
+                          <PopoverContent
                             align="start"
-                            className="w-60"
+                            className="w-60 p-1.5"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <DropdownMenuLabel>Filter {colName}</DropdownMenuLabel>
-                            <div className="p-1.5">
-                              <Input
-                                autoFocus
-                                value={colFilter}
-                                placeholder="Contains…"
-                                className="h-8 text-xs"
-                                onChange={(e) =>
-                                  setColFilters((prev) => ({
-                                    ...prev,
-                                    [colName]: e.target.value,
-                                  }))
-                                }
-                              />
+                            <div className="px-1 pb-1.5 text-xs font-medium text-muted-foreground">
+                              Filter{" "}
+                              <span className="font-mono text-foreground">
+                                {colName}
+                              </span>
                             </div>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => toggleSort(colName)}>
-                              <ArrowUpIcon />
-                              Sort ascending
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setSort({ column: colName, dir: "desc" })
+                            <Input
+                              autoFocus
+                              value={colFilter}
+                              placeholder="Contains…"
+                              className="h-8 text-xs"
+                              onChange={(e) =>
+                                setColFilters((prev) => ({
+                                  ...prev,
+                                  [colName]: e.target.value,
+                                }))
                               }
-                            >
-                              <ArrowDownIcon />
-                              Sort descending
-                            </DropdownMenuItem>
-                            {hasColFilter && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  variant="destructive"
+                            />
+                            <div className="mt-1.5 flex flex-col border-t border-border pt-1.5">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 justify-start gap-2 text-xs font-normal"
+                                onClick={() => setSort({ column: colName, dir: "asc" })}
+                              >
+                                <ArrowUpIcon data-icon="inline-start" />
+                                Sort ascending
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 justify-start gap-2 text-xs font-normal"
+                                onClick={() => setSort({ column: colName, dir: "desc" })}
+                              >
+                                <ArrowDownIcon data-icon="inline-start" />
+                                Sort descending
+                              </Button>
+                              {hasColFilter && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 justify-start gap-2 text-xs font-normal text-destructive hover:text-destructive"
                                   onClick={() =>
                                     setColFilters((prev) => {
                                       const next = { ...prev }
@@ -321,13 +327,13 @@ export function ResultsGrid({ result, columnMeta }: ResultsGridProps) {
                                     })
                                   }
                                 >
-                                  <XIcon />
+                                  <XIcon data-icon="inline-start" />
                                   Clear filter
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                                </Button>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </th>
                   )

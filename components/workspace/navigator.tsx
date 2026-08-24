@@ -26,6 +26,8 @@ import {
   Server,
   Lock,
   UserCog,
+  Settings,
+  LifeBuoy,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -42,6 +44,7 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { useWorkspace } from '@/components/providers/workspace-provider'
 import { ManageAccessDialog } from './manage-access-dialog'
+import { HelpDialog } from './help-dialog'
 import { connectionCapabilities, connectionRoleLabel } from '@/lib/rbac'
 import { containerLabel, entityPlural } from '@/lib/drivers'
 import { cn } from '@/lib/utils'
@@ -86,8 +89,9 @@ function TreeRow({
   return (
     <div
       className={cn(
-        'group/row flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1 text-sm select-none hover:bg-sidebar-accent',
-        active && 'bg-sidebar-accent',
+        'group/row flex h-7 cursor-pointer items-center gap-1 rounded-md border-l-2 border-transparent pr-1 text-sm select-none hover:bg-sidebar-accent',
+        active &&
+          'border-primary bg-primary/10 font-medium hover:bg-primary/15',
         className,
       )}
       style={{ paddingLeft: depth * 12 + 4 }}
@@ -272,9 +276,9 @@ function SchemaBranch({
   depth: number
   filter: string
 }) {
-  const [expanded, setExpanded] = React.useState(depth === 1)
+  const [expanded, setExpanded] = React.useState(false)
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({
-    tables: true,
+    tables: false,
     views: false,
     procedures: false,
   })
@@ -286,11 +290,12 @@ function SchemaBranch({
   const matches = (name: string) =>
     !filter || name.toLowerCase().includes(filter.toLowerCase())
 
-  const fTables = tables.filter((t) => matches(t.name))
-  const fViews = views.filter((t) => matches(t.name))
-  const fProcs = schema.procedures.filter((p) => matches(p.name))
+  const schemaMatches = matches(schema.name)
+  const fTables = schemaMatches ? tables : tables.filter((t) => matches(t.name))
+  const fViews = schemaMatches ? views : views.filter((t) => matches(t.name))
+  const fProcs = schemaMatches ? schema.procedures : schema.procedures.filter((p) => matches(p.name))
 
-  if (filter && fTables.length + fViews.length + fProcs.length === 0) return null
+  if (filter && !schemaMatches && fTables.length + fViews.length + fProcs.length === 0) return null
 
   function toggleGroup(key: string) {
     setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -412,14 +417,28 @@ function SchemaBranch({
 function ConnectionBranch({
   connection,
   filter,
+  selected,
 }: {
   connection: Connection
   filter: string
+  selected: boolean
 }) {
   const { openTab, removeConnection, logAudit, connectionRoleFor } =
     useWorkspace()
-  const [expanded, setExpanded] = React.useState(connection.status === 'connected')
+  const [expanded, setExpanded] = React.useState(false)
   const [manageOpen, setManageOpen] = React.useState(false)
+
+  const connMatches = !filter || connection.name.toLowerCase().includes(filter.toLowerCase())
+  const hasMatchingSchema = filter
+    ? connection.schemas.some(
+        (s) =>
+          s.name.toLowerCase().includes(filter.toLowerCase()) ||
+          s.tables.some((t) => t.name.toLowerCase().includes(filter.toLowerCase())) ||
+          s.procedures.some((p) => p.name.toLowerCase().includes(filter.toLowerCase())),
+      )
+    : true
+
+  if (filter && !connMatches && !hasMatchingSchema) return null
 
   // The connection is only rendered when visible, so the role is non-null.
   const connRole = connectionRoleFor(connection)
@@ -463,6 +482,7 @@ function ConnectionBranch({
         expandable
         expanded={expanded || !!filter}
         onToggle={() => setExpanded((v) => !v)}
+        active={selected}
         icon={<Database style={{ color: connection.accent }} />}
         label={
           <span className="flex min-w-0 items-center gap-1.5">
@@ -576,9 +596,32 @@ function ConnectionBranch({
   )
 }
 
+function NavSecondaryButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof Search
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm text-muted-foreground select-none hover:bg-sidebar-accent hover:text-foreground"
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+
 export function Navigator() {
-  const { connections } = useWorkspace()
+  const { connections, activeTab, openTab } = useWorkspace()
   const [filter, setFilter] = React.useState('')
+  const [helpOpen, setHelpOpen] = React.useState(false)
+  const filterInputRef = React.useRef<HTMLInputElement>(null)
 
   // Pin the system store to the top; keep the rest in their existing order.
   const sortedConnections = React.useMemo(
@@ -590,7 +633,8 @@ export function Navigator() {
   )
 
   return (
-    <div className="flex h-full flex-col bg-sidebar">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-sidebar">
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b px-3">
         <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Navigator
@@ -605,6 +649,7 @@ export function Navigator() {
             <Search />
           </InputGroupAddon>
           <InputGroupInput
+            ref={filterInputRef}
             placeholder="Filter tables & schemas…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -619,11 +664,35 @@ export function Navigator() {
             </p>
           ) : (
             sortedConnections.map((c) => (
-              <ConnectionBranch key={c.id} connection={c} filter={filter} />
+              <ConnectionBranch
+                key={c.id}
+                connection={c}
+                filter={filter}
+                selected={c.id === activeTab?.connectionId}
+              />
             ))
           )}
         </div>
       </ScrollArea>
+      <div className="shrink-0 border-t px-2 py-2">
+        <NavSecondaryButton
+          icon={Search}
+          label="Search"
+          onClick={() => filterInputRef.current?.focus()}
+        />
+        <NavSecondaryButton
+          icon={Settings}
+          label="Settings"
+          onClick={() =>
+            openTab({ kind: 'settings', title: 'Settings' }, { focusExisting: true })
+          }
+        />
+        <NavSecondaryButton
+          icon={LifeBuoy}
+          label="Get Help"
+          onClick={() => setHelpOpen(true)}
+        />
+      </div>
     </div>
   )
 }

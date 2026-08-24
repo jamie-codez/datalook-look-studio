@@ -4,6 +4,7 @@
 
 import type { Column, Connection, DriverId, TableKind } from './types'
 import { driverMeta } from './drivers'
+import { SYSTEM_DB_NAME } from './env'
 
 export const SYSTEM_CONNECTION_ID = 'conn-system'
 
@@ -32,6 +33,30 @@ function datasets(driver: DriverId): {
 
   if (category === 'document') {
     return [
+      {
+        name: 'users',
+        kind,
+        rowCount: 8,
+        columns: [
+          c('_id', 'objectId', { pk: true }),
+          c('name', 'string'),
+          c('email', 'string'),
+          c('role', 'string'),
+          c('customRoleId', 'string'),
+        ],
+      },
+      {
+        name: 'roles',
+        kind,
+        rowCount: 3,
+        columns: [
+          c('_id', 'objectId', { pk: true }),
+          c('name', 'string'),
+          c('description', 'string'),
+          c('permissions', 'array<string>'),
+          c('color', 'string'),
+        ],
+      },
       {
         name: 'connections',
         kind,
@@ -105,6 +130,31 @@ function datasets(driver: DriverId): {
   // SQL family
   return [
     {
+      name: 'users',
+      kind,
+      rowCount: 8,
+      columns: [
+        c('id', 'bigint', { pk: true }),
+        c('name', 'varchar(120)'),
+        c('email', 'varchar(255)'),
+        c('role', 'varchar(24)'),
+        c('custom_role_id', 'varchar(48)', { nullable: true }),
+        c('created_at', 'timestamptz'),
+      ],
+    },
+    {
+      name: 'roles',
+      kind,
+      rowCount: 3,
+      columns: [
+        c('id', 'bigint', { pk: true }),
+        c('name', 'varchar(80)'),
+        c('description', 'text'),
+        c('permissions', 'jsonb'),
+        c('color', 'varchar(48)'),
+      ],
+    },
+    {
       name: 'connections',
       kind,
       rowCount: 24,
@@ -157,7 +207,7 @@ export function buildSystemConnection(
     driver,
     host: 'internal://datalook-system',
     port: meta.defaultPort,
-    database: 'datalook_system',
+    database: SYSTEM_DB_NAME,
     username: 'system',
     status: 'connected',
     readOnly: false,

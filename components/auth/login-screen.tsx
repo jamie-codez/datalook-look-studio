@@ -26,9 +26,10 @@ import {
 } from '@/components/ui/input-group'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { isProduction, DEFAULT_ADMIN_PASSWORD } from '@/lib/env'
 import type { Role, User } from '@/lib/types'
 
-const DEMO_PASSWORD = 'datalook'
+const DEMO_PASSWORD = isProduction ? DEFAULT_ADMIN_PASSWORD : 'datalook'
 
 /** Roles surfaced as one-tap demo identities on the sign-in screen. */
 const QUICK_ROLES: { role: Role; blurb: string }[] = [
@@ -109,9 +110,11 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
           </ul>
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          Demo environment — no real databases are contacted.
-        </p>
+        {!isProduction && (
+          <p className="text-xs text-muted-foreground">
+            Demo environment — no real databases are contacted.
+          </p>
+        )}
 
         {/* Decorative grid wash, kept subtle and non-distracting */}
         <div
@@ -185,10 +188,12 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
                     {error}
                   </FieldDescription>
                 ) : (
-                  <FieldDescription>
-                    Demo password for every account:{' '}
-                    <span className="font-mono text-foreground">datalook</span>
-                  </FieldDescription>
+                  !isProduction && (
+                    <FieldDescription>
+                      Demo password for every account:{' '}
+                      <span className="font-mono text-foreground">datalook</span>
+                    </FieldDescription>
+                  )
                 )}
               </Field>
 
@@ -203,6 +208,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
             </FieldGroup>
           </form>
 
+          {!isProduction && (
           <div className="flex items-center gap-3">
             <Separator className="flex-1" />
             <span className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -210,7 +216,9 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
             </span>
             <Separator className="flex-1" />
           </div>
+          )}
 
+          {!isProduction && (
           <div className="flex flex-col gap-2">
             {QUICK_ROLES.map(({ role, blurb }) => {
               const user = users.find((u) => u.role === role)
@@ -246,6 +254,7 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
               Tap an account to prefill, then press Sign in.
             </p>
           </div>
+          )}
         </div>
       </main>
     </div>

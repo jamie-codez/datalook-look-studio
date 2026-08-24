@@ -30,9 +30,26 @@ import {
   ClockIcon,
   DatabaseIcon,
   TriangleAlertIcon,
+  BookmarkIcon,
+  BookmarkPlusIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu"
+import {
+  saveSavedQuery,
+  deleteSavedQuery,
+  loadSavedQueriesByDriver,
+  type SavedQuery,
+} from "@/lib/persistence"
 
 type RunState =
   | { status: "idle" }
@@ -48,6 +65,8 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
   const connRole = connection ? connectionRoleFor(connection) : null
   const [sql, setSql] = useState<string>(tab.sql ?? "SELECT * FROM customers LIMIT 25;")
   const [run, setRun] = useState<RunState>({ status: "idle" })
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([])
+  const [savedQueriesOpen, setSavedQueriesOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
 
@@ -125,6 +144,43 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
     active,
   )
 
+  const refreshSavedQueries = useCallback(async () => {
+    if (!connection) return
+    const queries = await loadSavedQueriesByDriver(connection.driver)
+    setSavedQueries(queries)
+  }, [connection])
+
+  const handleSaveQuery = useCallback(async () => {
+    if (!connection || !sql.trim()) {
+      toast.error("Nothing to save")
+      return
+    }
+    const title = sql.trim().split("\n")[0].slice(0, 60)
+    const query: SavedQuery = {
+      id: `sq-${Date.now()}`,
+      driver: connection.driver,
+      connectionId: connection.id,
+      title,
+      body: sql.trim(),
+      savedAt: new Date().toISOString(),
+    }
+    await saveSavedQuery(query)
+    toast.success("Query saved", { description: title })
+    refreshSavedQueries()
+  }, [connection, sql, refreshSavedQueries])
+
+  const handleLoadQuery = useCallback((query: SavedQuery) => {
+    setSql(query.body)
+    updateTabSql(tab.id, query.body)
+    toast.info(`Loaded: ${query.title}`)
+  }, [updateTabSql, tab.id])
+
+  const handleDeleteQuery = useCallback(async (id: string) => {
+    await deleteSavedQuery(id)
+    refreshSavedQueries()
+    toast.success("Query deleted")
+  }, [refreshSavedQueries])
+
   function onChange(next: string) {
     setSql(next)
   }
@@ -187,6 +243,69 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
           <EraserIcon data-icon="inline-start" />
           Clear
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          onClick={handleSaveQuery}
+        >
+          <BookmarkPlusIcon data-icon="inline-start" />
+          Save
+        </Button>
+        <DropdownMenu open={savedQueriesOpen} onOpenChange={(v) => {
+          setSavedQueriesOpen(v)
+          if (v) refreshSavedQueries()
+        }}>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" />
+            }
+          >
+            <BookmarkIcon data-icon="inline-start" />
+            Saved
+            {savedQueries.length > 0 && (
+              <span className="rounded-sm bg-muted px-1 text-[10px] tabular-nums">
+                {savedQueries.length}
+              </span>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-80">
+            <DropdownMenuLabel>Saved queries ({connection?.driver})</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {savedQueries.length === 0 ? (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                No saved queries for this driver yet.
+              </div>
+            ) : (
+              <DropdownMenuGroup>
+                {savedQueries.map((q) => (
+                  <DropdownMenuItem
+                    key={q.id}
+                    className="flex-col items-start gap-0.5"
+                    onClick={() => handleLoadQuery(q)}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-sm font-medium text-foreground">{q.title}</span>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteQuery(q.id)
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(q.savedAt).toLocaleDateString()}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-block">
           {"\u2318"} Enter
         </kbd>
@@ -219,7 +338,7 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
               aria-hidden
               className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-4"
             >
-              {highlightSql(sql)}
+              {highlightSql(sql, connection?.driver)}
               {"\n"}
             </div>
             <textarea
@@ -230,7 +349,11 @@ export function SqlEditorTab({ tab, active }: { tab: Tab; active: boolean }) {
               onKeyDown={onKeyDown}
               onScroll={syncScroll}
               className="absolute inset-0 h-full w-full resize-none whitespace-pre-wrap break-words bg-transparent p-4 text-transparent caret-foreground outline-none"
-              placeholder="Write SQL here..."
+              placeholder={
+                connection
+                  ? `Write ${connection.driver === 'mongodb' ? 'MongoDB shell' : connection.driver === 'redis' ? 'Redis' : connection.driver === 'cassandra' ? 'CQL' : connection.driver === 'dynamodb' ? 'DynamoDB' : connection.driver === 'couchdb' ? 'CouchDB' : 'SQL'} here...`
+                  : "Write a query here..."
+              }
               aria-label="SQL editor"
             />
           </div>

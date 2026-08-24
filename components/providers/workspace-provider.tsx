@@ -27,6 +27,7 @@ import { SystemStoreSetup } from '@/components/workspace/system-store-setup'
 import { LoaderCircle } from 'lucide-react'
 import type { DriverId } from '@/lib/types'
 import { useAuth } from './auth-provider'
+import { isProduction, DEFAULT_DB_DRIVER } from '@/lib/env'
 
 let idCounter = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${idCounter++}`
@@ -43,6 +44,10 @@ interface NewConnectionInput {
   scope: Connection['scope']
   /** access grants to apply (shared connections only) */
   grants: ConnectionGrant[]
+  /** deployment topology */
+  topology?: Connection['topology']
+  /** additional replica hosts */
+  replicaHosts?: Connection['replicaHosts']
 }
 
 interface WorkspaceContextValue {
@@ -83,8 +88,10 @@ const WorkspaceContext = React.createContext<WorkspaceContextValue | null>(null)
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { currentUser } = useAuth()
   // Full catalogue; each user only sees the subset they have access to.
-  const [allConnections, setAllConnections] =
-    React.useState<Connection[]>(CONNECTIONS)
+  // Production starts empty — connections come only from the admin / persistence.
+  const [allConnections, setAllConnections] = React.useState<Connection[]>(
+    isProduction ? [] : CONNECTIONS,
+  )
   // First-run + persistence lifecycle.
   const [hydrated, setHydrated] = React.useState(false)
   const [config, setConfig] = React.useState<AppConfig | null>(null)
@@ -94,13 +101,24 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [cfg, persisted] = await Promise.all([
+      let [cfg, persisted] = await Promise.all([
         loadAppConfig(),
         loadConnections(),
       ])
       if (cancelled) return
+
+      // Production auto-configures the system store from the env-provided
+      // driver instead of showing the interactive first-run picker.
+      if (isProduction && !cfg.initialized) {
+        cfg = {
+          initialized: true,
+          systemStore: { driver: DEFAULT_DB_DRIVER, category: driverMeta(DEFAULT_DB_DRIVER).category },
+        }
+        await saveAppConfig(cfg)
+      }
+
       const merged = new Map<string, Connection>()
-      for (const c of CONNECTIONS) merged.set(c.id, c)
+      if (!isProduction) for (const c of CONNECTIONS) merged.set(c.id, c)
       for (const c of persisted) merged.set(c.id, c)
       if (cfg.initialized && cfg.systemStore) {
         const sys = buildSystemConnection(cfg.systemStore.driver, currentUser.id)
@@ -182,7 +200,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           }
         }
         // Singleton tabs (users/audit/server-status) shouldn't duplicate.
-        if (['users', 'audit', 'server-status'].includes(tab.kind)) {
+        if (['users', 'audit', 'server-status', 'settings', 'admin'].includes(tab.kind)) {
           const singleton = prev.find(
             (t) => t.kind === tab.kind && t.connectionId === tab.connectionId,
           )
@@ -248,6 +266,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         grants: input.scope === 'shared' ? input.grants : [],
         // Credentials for user-created connections are persisted encrypted.
         encrypted: true,
+        topology: input.topology,
+        replicaHosts: input.replicaHosts,
         schemas: [
           {
             id: `${id}.${driverMeta(input.driver).vocab.container}`,

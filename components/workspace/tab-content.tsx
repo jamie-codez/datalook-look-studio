@@ -7,6 +7,8 @@ import { PropertiesTab } from "@/components/workspace/tabs/properties-tab"
 import { ServerStatusTab } from "@/components/workspace/tabs/server-status-tab"
 import { UserManagementTab } from "@/components/workspace/tabs/user-management-tab"
 import { AuditLogTab } from "@/components/workspace/tabs/audit-log-tab"
+import { SettingsTab } from "@/components/workspace/tabs/settings-tab"
+import { AdminConsoleTab } from "@/components/workspace/tabs/admin-console-tab"
 
 /**
  * Renders every open tab, keeping non-active tabs mounted but hidden so their
@@ -28,6 +30,8 @@ export function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
       {tab.kind === "server-status" && <ServerStatusTab tab={tab} />}
       {tab.kind === "users" && <UserManagementTab />}
       {tab.kind === "audit" && <AuditLogTab />}
+      {tab.kind === "settings" && <SettingsTab />}
+      {tab.kind === "admin" && <AdminConsoleTab />}
     </div>
   )
 }

@@ -17,10 +17,16 @@ import {
   Users,
   ScrollText,
   LogOut,
+  Bell,
+  UserCircle,
+  Settings,
+  LayoutDashboard,
+  PanelLeft,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import {
   Tooltip,
   TooltipContent,
@@ -44,6 +50,20 @@ import { useRBAC } from '@/components/providers/auth-provider'
 import { emitWorkspaceEvent } from '@/lib/workspace-events'
 import { roleSummary } from '@/lib/rbac'
 import { cn } from '@/lib/utils'
+import { isProduction } from '@/lib/env'
+
+interface NotificationItem {
+  id: string
+  title: string
+  detail: string
+  time: string
+}
+
+const NOTIFICATIONS: NotificationItem[] = [
+  { id: 'n-1', title: 'Query completed', detail: 'SELECT on customers finished in 84ms', time: '2m ago' },
+  { id: 'n-2', title: 'New grant', detail: "You were given editor access to 'Staging — MySQL'", time: '1h ago' },
+  { id: 'n-3', title: 'Connection restored', detail: "'Cache — Redis' is back online", time: '3h ago' },
+]
 
 function ActionButton({
   label,
@@ -81,7 +101,7 @@ function ActionButton({
   )
 }
 
-export function TopBar() {
+export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const { theme, toggleTheme } = useTheme()
   const { currentUser, users, switchUser, logout } = useAuth()
   const { can } = useRBAC()
@@ -100,7 +120,7 @@ export function TopBar() {
   }
 
   function openAdmin(
-    kind: 'users' | 'audit',
+    _kind: 'users' | 'audit' | 'admin',
     title: string,
     permission: 'users.manage' | 'audit.view',
     label: string,
@@ -111,9 +131,7 @@ export function TopBar() {
         description: `${currentUser.role} role cannot access ${label}. Switch to Admin to continue.`,
       })
     }
-    // Open regardless — the tab itself renders an access-denied state for
-    // non-admins so the guardrail is visible and consistent.
-    openTab({ kind, title }, { focusExisting: true })
+    openTab({ kind: 'settings', title: 'Settings' }, { focusExisting: true })
   }
 
   function handleTransaction(kind: 'commit' | 'rollback') {
@@ -132,6 +150,19 @@ export function TopBar() {
   return (
     <TooltipProvider delay={300}>
       <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-sidebar px-2">
+        {/* Mobile sidebar toggle */}
+        {onToggleSidebar && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="md:hidden"
+            onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
+          >
+            <PanelLeft />
+          </Button>
+        )}
+
         {/* Brand */}
         <div className="flex items-center gap-2 pr-1 pl-1">
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -145,10 +176,10 @@ export function TopBar() {
           </div>
         </div>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <Separator orientation="vertical" className="mx-1 hidden h-6 sm:inline" />
 
         {/* Primary actions */}
-        <div className="flex items-center gap-0.5">
+        <div className="hidden items-center gap-0.5 sm:flex">
           <ActionButton
             label="New Connection"
             icon={Plus}
@@ -183,10 +214,10 @@ export function TopBar() {
           />
         </div>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <Separator orientation="vertical" className="mx-1 hidden h-6 lg:inline" />
 
         {/* Transaction controls */}
-        <div className="flex items-center gap-0.5">
+        <div className="hidden items-center gap-0.5 lg:flex">
           <ActionButton
             label="Commit"
             icon={GitCommitHorizontal}
@@ -203,12 +234,12 @@ export function TopBar() {
           />
         </div>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <Separator orientation="vertical" className="mx-1 hidden h-6 lg:inline" />
 
         {/* Admin menu */}
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<Button variant="ghost" size="sm" />}
+            render={<Button variant="ghost" size="sm" className="hidden lg:flex" />}
           >
             <ShieldCheck data-icon="inline-start" />
             <span className="hidden lg:inline">Admin</span>
@@ -218,6 +249,14 @@ export function TopBar() {
             <div className="px-2 py-1.5 text-sm font-medium">Administration</div>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() =>
+                  openAdmin('admin', 'Admin console', 'users.manage', 'the admin console')
+                }
+              >
+                <LayoutDashboard />
+                Admin console
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() =>
                   openAdmin('users', 'Users & roles', 'users.manage', 'user management')
@@ -236,6 +275,8 @@ export function TopBar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <Separator orientation="vertical" className="mx-1 h-6" />
+
         <div className="flex-1" />
 
         {/* Theme toggle */}
@@ -252,6 +293,37 @@ export function TopBar() {
             Switch to {theme === 'dark' ? 'light' : 'dark'} mode
           </TooltipContent>
         </Tooltip>
+
+        {/* Notifications */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="icon-sm" className="relative" />}
+          >
+            <Bell />
+            {NOTIFICATIONS.length > 0 && (
+              <span className="absolute top-1 right-1 flex size-1.5 rounded-full bg-primary" aria-hidden />
+            )}
+            <span className="sr-only">Notifications</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <span className="text-sm font-medium">Notifications</span>
+              <Badge variant="secondary" className="tabular-nums">
+                {NOTIFICATIONS.length}
+              </Badge>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              {NOTIFICATIONS.map((n) => (
+                <DropdownMenuItem key={n.id} className="flex-col items-start gap-0.5 whitespace-normal">
+                  <span className="text-sm font-medium text-foreground">{n.title}</span>
+                  <span className="text-xs text-muted-foreground">{n.detail}</span>
+                  <span className="text-[10px] text-muted-foreground">{n.time}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <Separator orientation="vertical" className="mx-1 h-6" />
 
@@ -274,13 +346,35 @@ export function TopBar() {
             <ChevronsUpDown className="text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-72">
-            <div className="px-2 pt-1.5 text-sm font-medium">
-              Switch identity (demo)
-            </div>
+            <div className="px-2 pt-1.5 text-sm font-medium">{currentUser.name}</div>
             <p className="px-2 pb-1.5 text-xs text-muted-foreground">
-              {roleSummary(currentUser.role)}
+              {currentUser.email} · {roleSummary(currentUser.role)}
             </p>
             <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() =>
+                  openTab({ kind: 'settings', title: 'Settings' }, { focusExisting: true })
+                }
+              >
+                <UserCircle />
+                Account
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  openTab({ kind: 'settings', title: 'Settings' }, { focusExisting: true })
+                }
+              >
+                <Settings />
+                Settings
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            {!isProduction && (
+            <>
+            <DropdownMenuSeparator />
+            <div className="px-2 pt-1.5 text-xs font-medium text-muted-foreground">
+              Switch identity (demo)
+            </div>
             <DropdownMenuGroup>
               {users
                 .filter((u) =>
@@ -318,6 +412,8 @@ export function TopBar() {
                   </DropdownMenuItem>
                 ))}
             </DropdownMenuGroup>
+            </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem

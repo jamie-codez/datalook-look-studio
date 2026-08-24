@@ -4,18 +4,12 @@ import type {
   Role,
   StatementType,
   User,
+  Permission,
+  CustomRole,
 } from './types'
 
-// The set of discrete capabilities the UI gates on.
-export type Permission =
-  | 'query.read' // run SELECT / read-only statements
-  | 'query.write' // run INSERT / UPDATE / DELETE
-  | 'query.ddl' // run CREATE / DROP / ALTER / TRUNCATE
-  | 'data.edit' // edit rows inline in the data grid
-  | 'transaction.control' // commit / rollback
-  | 'connection.manage' // create / edit / delete connections + view credentials
-  | 'users.manage' // manage users & roles
-  | 'audit.view' // view audit logs
+// Re-export for convenience
+export type { Permission, CustomRole } from './types'
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   Viewer: ['query.read'],
@@ -44,6 +38,29 @@ export function can(role: Role, permission: Permission): boolean {
 
 export function permissionsFor(role: Role): Permission[] {
   return ROLE_PERMISSIONS[role]
+}
+
+/** Resolve permissions for a custom role by id, falling back to the built-in role. */
+export function permissionsForCustom(
+  role: Role,
+  customRoles: CustomRole[],
+  customRoleId?: string,
+): Permission[] {
+  if (customRoleId) {
+    const custom = customRoles.find((r) => r.id === customRoleId)
+    if (custom) return custom.permissions
+  }
+  return ROLE_PERMISSIONS[role]
+}
+
+/** Check permission against a user's effective role (including custom roles). */
+export function canWithCustom(
+  role: Role,
+  permission: Permission,
+  customRoles: CustomRole[],
+  customRoleId?: string,
+): boolean {
+  return permissionsForCustom(role, customRoles, customRoleId).includes(permission)
 }
 
 const ROLE_SUMMARY: Record<Role, string> = {

@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { TopBar } from "@/components/workspace/top-bar"
 import { Navigator } from "@/components/workspace/navigator"
 import { TabBar } from "@/components/workspace/tab-bar"
@@ -108,18 +109,18 @@ function StatusBar() {
         <span className="size-1.5 rounded-full bg-success" aria-hidden />
         {connected}/{connections.length} connected
       </span>
-      <span>·</span>
-      <span>{tabs.length} open tabs</span>
+      <span className="hidden sm:inline">·</span>
+      <span className="hidden sm:inline">{tabs.length} open tabs</span>
       {last && (
         <>
-          <span>·</span>
-          <span className="truncate">
+          <span className="hidden sm:inline">·</span>
+          <span className="hidden max-w-xs truncate sm:inline">
             last: {last.statementType} {last.status === "success" ? `${last.rowCount} rows` : last.status} in{" "}
             {last.durationMs}ms
           </span>
         </>
       )}
-      <span className="ml-auto">
+      <span className="ml-auto truncate">
         {currentUser.name} · {currentUser.role}
       </span>
     </footer>
@@ -128,13 +129,15 @@ function StatusBar() {
 
 export function WorkspaceShell() {
   const { tabs, activeTabId } = useWorkspace()
+  const [sidebarOpen, setSidebarOpen] = React.useState(false)
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <TopBar />
+      <TopBar onToggleSidebar={() => setSidebarOpen((v) => !v)} />
       <div className="min-h-0 flex-1">
-        <ResizablePanelGroup orientation="horizontal">
-          <ResizablePanel defaultSize="22" minSize="15" maxSize="40">
+        {/* Desktop layout: resizable panels */}
+        <ResizablePanelGroup orientation="horizontal" className="hidden md:flex">
+          <ResizablePanel defaultSize="22" minSize="15" maxSize="40" className="h-full min-h-0 overflow-hidden">
             <Navigator />
           </ResizablePanel>
           <ResizableHandle withHandle />
@@ -153,6 +156,34 @@ export function WorkspaceShell() {
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
+
+        {/* Mobile layout: sidebar as overlay drawer */}
+        <div className="flex h-full md:hidden">
+          {sidebarOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/50"
+                onClick={() => setSidebarOpen(false)}
+                aria-hidden
+              />
+              <div className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] border-r border-border bg-sidebar shadow-xl">
+                <Navigator />
+              </div>
+            </>
+          )}
+          <div className="flex h-full min-h-0 flex-1 flex-col">
+            <TabBar />
+            <div className="min-h-0 flex-1">
+              {tabs.length === 0 ? (
+                <WelcomePane />
+              ) : (
+                tabs.map((tab) => (
+                  <TabContent key={tab.id} tab={tab} active={tab.id === activeTabId} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       </div>
       <StatusBar />
     </div>

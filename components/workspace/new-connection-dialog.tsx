@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { toast } from 'sonner'
-import { Plus, Users, Lock } from 'lucide-react'
+import { Plus, Users, Lock, Trash2, Server } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,7 @@ import {
   driverMeta,
   driversByCategory,
 } from '@/lib/drivers'
-import type { ConnectionGrant, DriverId } from '@/lib/types'
+import type { ConnectionGrant, DriverId, ReplicaHost } from '@/lib/types'
 import { ShieldCheck } from 'lucide-react'
 
 export function NewConnectionDialog({
@@ -65,6 +65,8 @@ export function NewConnectionDialog({
     canCreateShared ? 'shared' : 'personal',
   )
   const [grants, setGrants] = React.useState<ConnectionGrant[]>([])
+  const [topology, setTopology] = React.useState<'standalone' | 'replicaSet' | 'masterSlave'>('standalone')
+  const [replicaHosts, setReplicaHosts] = React.useState<ReplicaHost[]>([])
 
   function reset() {
     setName('')
@@ -76,6 +78,25 @@ export function NewConnectionDialog({
     setReadOnly('rw')
     setScope(canCreateShared ? 'shared' : 'personal')
     setGrants([])
+    setTopology('standalone')
+    setReplicaHosts([])
+  }
+
+  function addReplicaHost() {
+    setReplicaHosts((prev) => [
+      ...prev,
+      { host: '', port: driverMeta(driver).defaultPort, role: 'secondary', priority: 1 },
+    ])
+  }
+
+  function updateReplicaHost(index: number, updates: Partial<ReplicaHost>) {
+    setReplicaHosts((prev) =>
+      prev.map((h, i) => (i === index ? { ...h, ...updates } : h)),
+    )
+  }
+
+  function removeReplicaHost(index: number) {
+    setReplicaHosts((prev) => prev.filter((_, i) => i !== index))
   }
 
   function handleDriverChange(value: DriverId | null) {
@@ -91,6 +112,7 @@ export function NewConnectionDialog({
       return
     }
     const effectiveScope = canCreateShared ? scope : 'personal'
+    const validReplicas = replicaHosts.filter((r) => r.host.trim())
     addConnection({
       name: name.trim(),
       driver,
@@ -101,6 +123,8 @@ export function NewConnectionDialog({
       readOnly: readOnly === 'ro',
       scope: effectiveScope,
       grants: effectiveScope === 'shared' ? grants : [],
+      topology,
+      replicaHosts: topology !== 'standalone' && validReplicas.length > 0 ? validReplicas : undefined,
     })
     logAudit(
       `Create ${effectiveScope} connection`,
@@ -194,6 +218,93 @@ export function NewConnectionDialog({
                 placeholder="db.example.internal"
               />
             </Field>
+
+            <Field>
+              <FieldLabel>Topology</FieldLabel>
+              <ToggleGroup
+                value={[topology]}
+                onValueChange={(v) => v[0] && setTopology(v[0] as 'standalone' | 'replicaSet' | 'masterSlave')}
+                variant="outline"
+                className="w-full"
+              >
+                <ToggleGroupItem value="standalone" className="flex-1">
+                  Standalone
+                </ToggleGroupItem>
+                <ToggleGroupItem value="replicaSet" className="flex-1">
+                  Replica set
+                </ToggleGroupItem>
+                <ToggleGroupItem value="masterSlave" className="flex-1">
+                  Master / Slave
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <FieldDescription>
+                {topology === 'standalone'
+                  ? 'Single server instance.'
+                  : topology === 'replicaSet'
+                    ? 'Multiple nodes with automatic failover. The primary host above is the seed.'
+                    : 'Primary (master) with one or more read replicas. The host above is the master.'}
+              </FieldDescription>
+            </Field>
+
+            {topology !== 'standalone' && (
+              <Field>
+                <div className="flex items-center justify-between">
+                  <FieldLabel>Replica hosts</FieldLabel>
+                  <Button type="button" variant="outline" size="sm" onClick={addReplicaHost}>
+                    <Plus data-icon="inline-start" className="size-3.5" />
+                    Add host
+                  </Button>
+                </div>
+                {replicaHosts.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+                    No replica hosts added. The primary host above will be used as{' '}
+                    {topology === 'replicaSet' ? 'the primary node' : 'the master'}.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {replicaHosts.map((replica, index) => (
+                      <div key={index} className="flex items-center gap-2 rounded-md border border-border bg-muted/30 p-2">
+                        <Server className="size-4 shrink-0 text-muted-foreground" />
+                        <Input
+                          value={replica.host}
+                          onChange={(e) => updateReplicaHost(index, { host: e.target.value })}
+                          placeholder="replica-1.example.internal"
+                          className="flex-1"
+                        />
+                        <Input
+                          value={String(replica.port)}
+                          onChange={(e) => updateReplicaHost(index, { port: Number.parseInt(e.target.value, 10) || 0 })}
+                          inputMode="numeric"
+                          className="w-20"
+                        />
+                        <Select
+                          value={replica.role}
+                          onValueChange={(v) => v && updateReplicaHost(index, { role: v as ReplicaHost['role'] })}
+                        >
+                          <SelectTrigger size="sm" className="w-28">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="primary">Primary</SelectItem>
+                            <SelectItem value="secondary">Secondary</SelectItem>
+                            <SelectItem value="arbiter">Arbiter</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => removeReplicaHost(index)}
+                          aria-label="Remove replica host"
+                        >
+                          <Trash2 className="size-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Field>
+            )}
 
             <Field orientation="responsive">
               <Field>

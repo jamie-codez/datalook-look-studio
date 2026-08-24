@@ -2,6 +2,26 @@
 
 export type Role = 'Admin' | 'Editor' | 'Viewer'
 
+export interface CustomRole {
+  id: string
+  name: string
+  description: string
+  /** permissions granted to this role */
+  permissions: Permission[]
+  /** design-token color for the badge */
+  color: string
+}
+
+export type Permission =
+  | 'query.read'
+  | 'query.write'
+  | 'query.ddl'
+  | 'data.edit'
+  | 'transaction.control'
+  | 'connection.manage'
+  | 'users.manage'
+  | 'audit.view'
+
 export interface User {
   id: string
   name: string
@@ -9,6 +29,8 @@ export interface User {
   role: Role
   /** short initials used in the avatar */
   initials: string
+  /** optional custom role assigned in addition to or instead of built-in role */
+  customRoleId?: string
 }
 
 export type DriverId =
@@ -106,6 +128,19 @@ export interface Connection {
   encrypted?: boolean
   /** true for the pinned system store that backs the app's own metadata */
   isSystem?: boolean
+  /** additional hosts for replica set / master-slave configurations */
+  replicaHosts?: ReplicaHost[]
+  /** deployment topology: standalone, replicaSet, or masterSlave */
+  topology?: 'standalone' | 'replicaSet' | 'masterSlave'
+}
+
+export interface ReplicaHost {
+  host: string
+  port: number
+  /** role in the topology: primary, secondary, or arbiter */
+  role: 'primary' | 'secondary' | 'arbiter'
+  /** optional priority for replica set elections */
+  priority?: number
 }
 
 export type TabKind =
@@ -115,6 +150,8 @@ export type TabKind =
   | 'server-status'
   | 'users'
   | 'audit'
+  | 'settings'
+  | 'admin'
 
 export interface Tab {
   id: string

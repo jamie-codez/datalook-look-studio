@@ -536,6 +536,8 @@ function nestedValueForColumn(
 /** Column types that should render as nested/expandable values. */
 function isNestedType(colType: string): boolean {
   const t = colType.toLowerCase()
+  // "objectid" is a scalar identifier, not a nested object.
+  if (t === 'objectid') return false
   return (
     t.includes('json') ||
     t.includes('document') ||
@@ -560,6 +562,12 @@ function valueForColumn(
   const type = colType.toLowerCase()
   const pick = <T,>(arr: T[]) => arr[Math.floor(rand() * arr.length)]
 
+  // Mongo-style identifiers are 24-char hex strings, not integers.
+  if (type === 'objectid') {
+    let hex = ''
+    for (let i = 0; i < 24; i++) hex += Math.floor(rand() * 16).toString(16)
+    return hex
+  }
   if (name === 'id' || name.endsWith('_id') || name === 'user_id') {
     return name === 'id' ? index + 1 : 1 + Math.floor(rand() * 5000)
   }

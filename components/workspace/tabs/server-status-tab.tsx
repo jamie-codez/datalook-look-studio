@@ -73,6 +73,7 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
     ["User", connection.username],
     ["Access", connection.readOnly ? "Read-only" : "Read / Write"],
     ["Schemas", String(connection.schemas.length)],
+    ["Topology", connection.topology ?? "standalone"],
   ]
 
   return (
@@ -123,6 +124,48 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
             ))}
           </dl>
         </div>
+
+        {connection.replicaHosts && connection.replicaHosts.length > 0 && (
+          <>
+            <h3 className="mt-6 mb-2 text-sm font-semibold text-foreground">Replica hosts</h3>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-secondary text-left">
+                    <th className="px-4 py-2 font-medium text-muted-foreground">Host</th>
+                    <th className="px-4 py-2 font-medium text-muted-foreground">Port</th>
+                    <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
+                    <th className="px-4 py-2 font-medium text-muted-foreground">Priority</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-border bg-primary/5">
+                    <td className="px-4 py-2 font-mono text-foreground">{connection.host}</td>
+                    <td className="px-4 py-2 font-mono text-foreground">{connection.port}</td>
+                    <td className="px-4 py-2">
+                      <Badge variant="secondary" className="bg-primary/15 text-primary">primary</Badge>
+                    </td>
+                    <td className="px-4 py-2 text-muted-foreground">—</td>
+                  </tr>
+                  {connection.replicaHosts.map((r, i) => (
+                    <tr key={i} className="border-t border-border">
+                      <td className="px-4 py-2 font-mono text-foreground">{r.host}</td>
+                      <td className="px-4 py-2 font-mono text-foreground">{r.port}</td>
+                      <td className="px-4 py-2">
+                        <Badge variant="secondary" className={
+                          r.role === 'secondary' ? 'bg-chart-2/15 text-chart-2' : 'bg-muted text-muted-foreground'
+                        }>
+                          {r.role}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">{r.priority ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </ScrollArea>
   )
