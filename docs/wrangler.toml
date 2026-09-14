@@ -2,5 +2,8 @@ name = "datalook-docs"
 compatibility_date = "2024-09-01"
 
 [assets]
-directory = "./site"
+# mkdocs builds to <repo-root>/site (its own default) — it refuses to nest
+# site_dir inside docs_dir, and this file's source docs/ *is* docs_dir. So
+# the build output lives one level up from this file, not alongside it.
+directory = "../site"
 not_found_handling = "404-page"

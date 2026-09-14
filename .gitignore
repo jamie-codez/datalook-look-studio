@@ -15,3 +15,6 @@ node_modules
 .DS_Store
 .idea
 .data/
+
+# mkdocs build output (see mkdocs.yml — outputs to <repo-root>/site)
+/site/

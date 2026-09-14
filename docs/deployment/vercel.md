@@ -48,5 +48,3 @@ The repository includes GitHub Actions workflows for:
 
 - **Preview deployments** on PRs (`.github/workflows/preview.yml`)
 - **Production deployments** on pushes to `main` (`.github/workflows/production.yml`)
-
-See [CI/CD documentation](../ci-cd.md) for details.
