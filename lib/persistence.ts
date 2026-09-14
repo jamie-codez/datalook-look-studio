@@ -4,11 +4,12 @@
 // encrypted via the AES-GCM master key; the rest of the connection metadata is
 // stored in clear so the tree can render without decrypting everything.
 
-import type { AuditLogItem, Connection, DriverCategory, DriverId, User, CustomRole } from './types'
+import type { AuditLogItem, Connection, DriverCategory, DriverId, QueryHistoryItem, User, CustomRole } from './types'
 import { decryptJson, encryptJson } from './crypto'
 import {
   AUDIT_STORE,
   CONNECTION_STORE,
+  HISTORY_STORE,
   META_STORE,
   QUERY_STORE,
   USERS_STORE,
@@ -136,6 +137,29 @@ export async function clearAuditLog(): Promise<void> {
   for (const e of entries) {
     await idbDelete(AUDIT_STORE, e.id)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Query run history — separate from saved queries above; this is the SQL
+// editor's "what did I just run" log. Capped so it can't grow unbounded.
+// ---------------------------------------------------------------------------
+
+const MAX_HISTORY_ITEMS = 200
+
+export async function saveQueryHistoryItem(item: QueryHistoryItem): Promise<void> {
+  await idbPut(HISTORY_STORE, item)
+  // Prune oldest entries beyond the cap. Cheap enough at this scale (a full
+  // getAll + a handful of deletes) — this store is never queried by range.
+  const all = await idbGetAll<QueryHistoryItem>(HISTORY_STORE)
+  if (all.length > MAX_HISTORY_ITEMS) {
+    const toRemove = all.sort((a, b) => a.timestamp - b.timestamp).slice(0, all.length - MAX_HISTORY_ITEMS)
+    for (const entry of toRemove) await idbDelete(HISTORY_STORE, entry.id)
+  }
+}
+
+export async function loadQueryHistory(): Promise<QueryHistoryItem[]> {
+  const entries = await idbGetAll<QueryHistoryItem>(HISTORY_STORE)
+  return entries.sort((a, b) => b.timestamp - a.timestamp)
 }
 
 // ---------------------------------------------------------------------------

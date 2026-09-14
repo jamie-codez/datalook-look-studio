@@ -1,15 +1,18 @@
 import { Pool, Client, type PoolClient } from 'pg'
-import type { User, CustomRole, AuditLogItem, AuditStatus, Role, Permission } from '@/lib/types'
+import type { User, CustomRole, AuditLogItem, AuditStatus, Role, Permission, QueryHistoryItem, StatementType } from '@/lib/types'
 
 /**
  * Data access layer for the real (Postgres-backed) system store: the
  * "datalook" schema that scripts/init-db.ts provisions, holding users,
- * roles, and the audit log. Used only server-side (Route Handlers) when
- * NEXT_PUBLIC_SYSTEM_BACKEND=postgres (see lib/env.ts).
+ * roles, the audit log, and query history. Used only server-side (Route
+ * Handlers) when NEXT_PUBLIC_SYSTEM_BACKEND=postgres (see lib/env.ts).
  *
- * Deliberately scoped to identity/access-control tables. The connections
- * and query_history tables created by init-db.ts are schema-only for now —
- * connection credentials continue to live in lib/db/server-store.ts.
+ * The connections table created by init-db.ts is still schema-only —
+ * connection credentials continue to live in lib/db/server-store.ts, and
+ * mapping this app's string connection ids onto that table's bigserial PK
+ * (plus safely relocating encrypted credential storage off the server
+ * filesystem) is a bigger change than this pass takes on. See
+ * docs/architecture.md "Known gaps".
  */
 
 const PGHOST = process.env.PGHOST || 'localhost'
@@ -112,6 +115,11 @@ export async function ensureSchema(client: Pool | PoolClient | Client): Promise<
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // connection_id can't be populated yet (see file header — connections
+  // aren't mirrored into Postgres), so keep the human-readable name and row
+  // count alongside it rather than losing them entirely.
+  await client.query(`ALTER TABLE datalook.query_history ADD COLUMN IF NOT EXISTS connection_name VARCHAR(120)`)
+  await client.query(`ALTER TABLE datalook.query_history ADD COLUMN IF NOT EXISTS row_count INTEGER`)
 
   await client.query(`
     CREATE TABLE IF NOT EXISTS datalook.connection_grants (
@@ -366,4 +374,54 @@ export async function countUsers(): Promise<number> {
   const p = await requirePool()
   const res = await p.query('SELECT COUNT(*)::int AS n FROM datalook.users')
   return res.rows[0].n
+}
+
+interface QueryHistoryRow {
+  id: string
+  statement_type: string | null
+  body: string | null
+  duration_ms: number | null
+  status: string | null
+  connection_name: string | null
+  row_count: number | null
+  created_at: Date
+}
+
+function toQueryHistoryItem(row: QueryHistoryRow): QueryHistoryItem {
+  return {
+    id: row.id,
+    sql: row.body ?? '',
+    timestamp: new Date(row.created_at).getTime(),
+    durationMs: row.duration_ms ?? 0,
+    status: (row.status as QueryHistoryItem['status']) ?? 'success',
+    connectionName: row.connection_name ?? '',
+    rowCount: row.row_count ?? 0,
+    statementType: (row.statement_type as StatementType) ?? 'UNKNOWN',
+  }
+}
+
+export async function listQueryHistory(limit = 200): Promise<QueryHistoryItem[]> {
+  const p = await requirePool()
+  const res = await p.query<QueryHistoryRow>(
+    `SELECT id::text, statement_type, body, duration_ms, status, connection_name, row_count, created_at
+     FROM datalook.query_history ORDER BY id DESC LIMIT $1`,
+    [limit],
+  )
+  return res.rows.map(toQueryHistoryItem)
+}
+
+export async function appendQueryHistory(item: {
+  sql: string
+  durationMs: number
+  status: string
+  connectionName: string
+  rowCount: number
+  statementType: string
+}): Promise<void> {
+  const p = await requirePool()
+  await p.query(
+    `INSERT INTO datalook.query_history (statement_type, body, duration_ms, status, connection_name, row_count)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [item.statementType, item.sql, item.durationMs, item.status, item.connectionName, item.rowCount],
+  )
 }

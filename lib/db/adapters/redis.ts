@@ -1,5 +1,5 @@
 import Redis from 'ioredis'
-import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class RedisAdapter implements DBAdapter {
@@ -19,7 +19,14 @@ export class RedisAdapter implements DBAdapter {
         maxRetriesPerRequest: 1,
         // Don't buffer commands — fail fast
         enableOfflineQueue: false,
+        // Without this, ioredis starts connecting in the background and the
+        // ping() below races the handshake — with enableOfflineQueue false
+        // that race is lost almost every time ("Stream isn't writeable").
+        // lazyConnect + an explicit connect() makes connect() actually wait
+        // for the client to be ready before we send anything.
+        lazyConnect: true,
       })
+      await this.client.connect()
       // Verify connectivity
       await this.client.ping()
       // Detect cluster mode (CLUSTER INFO)
@@ -203,6 +210,33 @@ export class RedisAdapter implements DBAdapter {
         statement: String(raw),
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.client) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+    try {
+      const info = await this.client.info()
+      const parsed: Record<string, string> = {}
+      for (const line of info.split(/\r?\n/)) {
+        const idx = line.indexOf(':')
+        if (idx > 0 && !line.startsWith('#')) parsed[line.slice(0, idx)] = line.slice(idx + 1)
+      }
+      if (parsed.redis_version) metrics.version = `Redis ${parsed.redis_version}`
+      if (parsed.uptime_in_seconds) metrics.uptimeSeconds = parseInt(parsed.uptime_in_seconds, 10)
+      if (parsed.connected_clients) metrics.connections = { current: parseInt(parsed.connected_clients, 10) }
+      if (parsed.used_memory) metrics.memoryBytes = parseInt(parsed.used_memory, 10)
+      if (parsed.instantaneous_ops_per_sec) {
+        metrics.opsPerSecond = parseInt(parsed.instantaneous_ops_per_sec, 10)
+        metrics.opsPerSecondLabel = 'Ops/sec (live)'
+      }
+      const hits = Number(parsed.keyspace_hits) || 0
+      const misses = Number(parsed.keyspace_misses) || 0
+      if (hits + misses > 0) metrics.cacheHitRatio = hits / (hits + misses)
+    } catch (err: any) {
+      metrics.unavailableReason = `INFO command failed: ${err.message}`
+    }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

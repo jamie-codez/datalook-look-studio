@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb'
-import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class MongoAdapter implements DBAdapter {
@@ -153,6 +153,44 @@ export class MongoAdapter implements DBAdapter {
         statement: String(raw),
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.client) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+    try {
+      const status = (await this.client.db().admin().command({ serverStatus: 1 })) as any
+      metrics.version = status.version ? `MongoDB ${status.version}` : undefined
+      if (typeof status.uptime === 'number') metrics.uptimeSeconds = Math.floor(status.uptime)
+      if (status.connections) {
+        const current = status.connections.current
+        const available = status.connections.available
+        metrics.connections = {
+          current,
+          max: typeof current === 'number' && typeof available === 'number' ? current + available : undefined,
+        }
+      }
+      if (typeof status.mem?.resident === 'number') {
+        metrics.memoryBytes = status.mem.resident * 1024 * 1024
+      }
+      if (status.opcounters && metrics.uptimeSeconds) {
+        const totalOps = Object.values(status.opcounters as Record<string, number>).reduce(
+          (a, b) => a + (typeof b === 'number' ? b : 0),
+          0,
+        )
+        metrics.opsPerSecond = totalOps / metrics.uptimeSeconds
+        metrics.opsPerSecondLabel = 'Ops/sec (avg since start)'
+      }
+      const cache = status.wiredTiger?.cache
+      const used = cache?.['bytes currently in the cache']
+      const configured = cache?.['maximum bytes configured']
+      if (typeof used === 'number' && typeof configured === 'number' && configured > 0) {
+        metrics.extra = { 'Cache utilization': `${Math.round((used / configured) * 100)}%` }
+      }
+    } catch (err: any) {
+      metrics.unavailableReason = `serverStatus requires the clusterMonitor role (or similar): ${err.message}`
+    }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

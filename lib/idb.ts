@@ -6,12 +6,13 @@
 // Everything is client-only and guarded so it no-ops safely during SSR.
 
 const DB_NAME = 'datalook-studio'
-const DB_VERSION = 3
+const DB_VERSION = 4
 export const META_STORE = 'meta'
 export const CONNECTION_STORE = 'connections'
 export const QUERY_STORE = 'queries'
 export const AUDIT_STORE = 'audit'
 export const USERS_STORE = 'users'
+export const HISTORY_STORE = 'history'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -39,6 +40,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(USERS_STORE)) {
         db.createObjectStore(USERS_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        db.createObjectStore(HISTORY_STORE, { keyPath: 'id' })
       }
     }
     req.onsuccess = () => resolve(req.result)

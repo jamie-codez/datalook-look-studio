@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, FieldSample } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, FieldSample, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class PostgresAdapter implements DBAdapter {
@@ -176,6 +176,61 @@ export class PostgresAdapter implements DBAdapter {
         statement: sql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.pool) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+
+    try {
+      const res = await this.pool.query('SELECT version() AS v')
+      metrics.version = (res.rows[0]?.v as string)?.split(',')[0]
+    } catch { /* leave unset */ }
+
+    try {
+      const res = await this.pool.query(
+        "SELECT extract(epoch from now() - pg_postmaster_start_time())::bigint AS s",
+      )
+      metrics.uptimeSeconds = Number(res.rows[0]?.s)
+    } catch { /* leave unset */ }
+
+    try {
+      const [count, max] = await Promise.all([
+        this.pool.query('SELECT count(*)::int AS n FROM pg_stat_activity'),
+        this.pool.query('SHOW max_connections'),
+      ])
+      metrics.connections = {
+        current: count.rows[0]?.n,
+        max: parseInt(max.rows[0]?.max_connections, 10) || undefined,
+      }
+    } catch { /* leave unset */ }
+
+    try {
+      const res = await this.pool.query(
+        'SELECT sum(blks_hit)::float8 AS hit, sum(blks_read)::float8 AS reads FROM pg_stat_database',
+      )
+      const hit = Number(res.rows[0]?.hit) || 0
+      const reads = Number(res.rows[0]?.reads) || 0
+      if (hit + reads > 0) metrics.cacheHitRatio = hit / (hit + reads)
+    } catch { /* leave unset */ }
+
+    try {
+      const res = await this.pool.query(
+        'SELECT sum(xact_commit + xact_rollback)::float8 AS xacts FROM pg_stat_database',
+      )
+      const xacts = Number(res.rows[0]?.xacts) || 0
+      if (metrics.uptimeSeconds && metrics.uptimeSeconds > 0) {
+        metrics.opsPerSecond = xacts / metrics.uptimeSeconds
+        metrics.opsPerSecondLabel = 'Transactions/sec (avg since start)'
+      }
+    } catch { /* leave unset */ }
+
+    try {
+      const res = await this.pool.query('SELECT pg_database_size(current_database()) AS sz')
+      metrics.databaseSizeBytes = Number(res.rows[0]?.sz)
+    } catch { /* leave unset */ }
+
+    return metrics
   }
 
   async disconnect(): Promise<void> {

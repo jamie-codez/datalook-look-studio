@@ -7,7 +7,7 @@ import {
   UpdateItemCommand,
   DeleteItemCommand,
 } from '@aws-sdk/client-dynamodb'
-import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class DynamoDBAdapter implements DBAdapter {
@@ -181,6 +181,19 @@ export class DynamoDBAdapter implements DBAdapter {
         statement: String(raw),
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.client) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {
+      unavailableReason:
+        'DynamoDB is a fully managed, serverless service — there is no server process to report CPU, memory, or connections for. Use AWS CloudWatch for capacity and latency metrics.',
+    }
+    try {
+      const res = await this.client.send(new ListTablesCommand({}))
+      metrics.extra = { Tables: (res.TableNames || []).length }
+    } catch { /* leave unset */ }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

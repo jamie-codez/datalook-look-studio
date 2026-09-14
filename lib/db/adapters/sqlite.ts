@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { existsSync, statSync, readdirSync } from 'node:fs'
 import { join, dirname, basename, extname } from 'node:path'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class SqliteAdapter implements DBAdapter {
@@ -120,6 +120,23 @@ export class SqliteAdapter implements DBAdapter {
         statement: sql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.db) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {
+      unavailableReason:
+        'SQLite is an embedded, file-based database with no server process — connections, uptime, and cache-hit metrics do not apply here.',
+    }
+    try {
+      const row = this.db.prepare('SELECT sqlite_version() AS v').get() as { v: string }
+      metrics.version = `SQLite ${row.v}`
+    } catch { /* leave unset */ }
+    try {
+      const filePath = this.config?.filePath || this.config?.host || this.config?.database
+      if (filePath) metrics.databaseSizeBytes = statSync(filePath).size
+    } catch { /* leave unset */ }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

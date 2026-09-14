@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 /**
@@ -163,6 +163,33 @@ export class CockroachAdapter implements DBAdapter {
         statement: sql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.pool) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+
+    try {
+      const res = await this.pool.query('SELECT version() AS v')
+      metrics.version = res.rows[0]?.v as string
+    } catch { /* leave unset */ }
+
+    try {
+      // SHOW SESSIONS lists every active SQL session cluster-wide.
+      const res = await this.pool.query('SELECT count(*)::int AS n FROM [SHOW SESSIONS]')
+      metrics.connections = { current: res.rows[0]?.n }
+    } catch { /* leave unset — not exposed on every CRDB version/permission level */ }
+
+    try {
+      const res = await this.pool.query('SELECT pg_database_size(current_database()) AS sz')
+      metrics.databaseSizeBytes = Number(res.rows[0]?.sz)
+    } catch { /* leave unset */ }
+
+    // CockroachDB doesn't expose buffer cache stats or uptime through SQL the
+    // way Postgres does — those require the /_status HTTP admin API, which
+    // this app doesn't have credentials for. Leaving them unset rather than
+    // guessing is the honest choice here.
+    return metrics
   }
 
   async disconnect(): Promise<void> {

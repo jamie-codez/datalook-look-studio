@@ -1,5 +1,5 @@
 import { Client as CassandraClient } from 'cassandra-driver'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class CassandraAdapter implements DBAdapter {
@@ -119,6 +119,30 @@ export class CassandraAdapter implements DBAdapter {
         statement: cql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.client) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {
+      unavailableReason:
+        'Cassandra exposes CPU, memory, and throughput metrics only via JMX/nodetool, which this app does not connect to. Version and topology come from system.local.',
+    }
+    try {
+      const res = await this.client.execute('SELECT release_version, cluster_name, data_center FROM system.local')
+      const row = res.rows[0]
+      if (row) {
+        const version = row.get('release_version') as string | undefined
+        if (version) metrics.version = `Cassandra ${version}`
+        metrics.extra = {
+          Cluster: (row.get('cluster_name') as string) || '',
+          'Data center': (row.get('data_center') as string) || '',
+        }
+      }
+    } catch { /* leave unset */ }
+    try {
+      metrics.connections = { current: this.client.getState().getConnectedHosts().length }
+    } catch { /* leave unset */ }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

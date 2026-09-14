@@ -48,6 +48,29 @@ export interface QueryResult {
   statement: string
 }
 
+/**
+ * Live server metrics. Every field is optional — an adapter only populates
+ * what its driver can genuinely report; nothing here is ever fabricated.
+ * `unavailableReason` explains why some (or all) fields are missing, e.g.
+ * "requires clusterMonitor role" or "embedded DB, no server process".
+ */
+export interface ServerMetrics {
+  version?: string
+  uptimeSeconds?: number
+  connections?: { current: number; max?: number }
+  /** resident memory used by the server process, in bytes */
+  memoryBytes?: number
+  /** 0-1 */
+  cacheHitRatio?: number
+  opsPerSecond?: number
+  /** human label for what opsPerSecond actually measures, e.g. "Queries/sec (avg)" */
+  opsPerSecondLabel?: string
+  databaseSizeBytes?: number
+  /** extra driver-specific facts with no common shape (cluster name, table count, …) */
+  extra?: Record<string, string | number>
+  unavailableReason?: string
+}
+
 /** Structured error types for granular UI feedback. */
 export class DBError extends Error {
   constructor(
@@ -76,6 +99,8 @@ export interface DBAdapter {
   getStructure(container: string, schema?: string): Promise<ColumnDef[] | FieldSample>
   /** Execute a native query (SQL, Mongo pipeline, Redis command, etc). */
   query(raw: unknown): Promise<QueryResult>
+  /** Live server metrics, when this driver can report any. */
+  getServerMetrics?(): Promise<ServerMetrics>
   /** Close the underlying connection. */
   disconnect(): Promise<void>
 }

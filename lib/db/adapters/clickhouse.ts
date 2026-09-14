@@ -1,5 +1,5 @@
 import { createClient, type ClickHouseClient } from '@clickhouse/client'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 export class ClickHouseAdapter implements DBAdapter {
@@ -127,6 +127,50 @@ export class ClickHouseAdapter implements DBAdapter {
         statement: sql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.client) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+
+    try {
+      const rs = await this.client.query({ query: 'SELECT version() AS v, uptime() AS u', format: 'JSONEachRow' })
+      const rows = await rs.json<{ v: string; u: number }>()
+      if (rows[0]) {
+        metrics.version = `ClickHouse ${rows[0].v}`
+        metrics.uptimeSeconds = rows[0].u
+      }
+    } catch { /* leave unset */ }
+
+    try {
+      const rs = await this.client.query({
+        query: "SELECT value FROM system.asynchronous_metrics WHERE metric = 'MemoryResident'",
+        format: 'JSONEachRow',
+      })
+      const rows = await rs.json<{ value: string }>()
+      if (rows[0]) metrics.memoryBytes = Number(rows[0].value)
+    } catch { /* leave unset */ }
+
+    try {
+      const rs = await this.client.query({
+        query: "SELECT value FROM system.metrics WHERE metric = 'TCPConnection'",
+        format: 'JSONEachRow',
+      })
+      const rows = await rs.json<{ value: string }>()
+      if (rows[0]) metrics.connections = { current: Number(rows[0].value) }
+    } catch { /* leave unset */ }
+
+    try {
+      const rs = await this.client.query({
+        query: 'SELECT sum(bytes_on_disk) AS sz FROM system.parts WHERE database = {db:String} AND active',
+        query_params: { db: this.config?.database || 'default' },
+        format: 'JSONEachRow',
+      })
+      const rows = await rs.json<{ sz: string }>()
+      if (rows[0]?.sz) metrics.databaseSizeBytes = Number(rows[0].sz)
+    } catch { /* leave unset */ }
+
+    return metrics
   }
 
   async disconnect(): Promise<void> {

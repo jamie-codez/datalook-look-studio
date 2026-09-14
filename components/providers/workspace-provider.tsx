@@ -19,9 +19,11 @@ import {
   loadAppConfig,
   loadAuditLog,
   loadConnections,
+  loadQueryHistory,
   saveAppConfig,
   saveAuditEntry,
   saveConnection,
+  saveQueryHistoryItem,
   deleteConnection as deletePersistedConnection,
 } from '@/lib/persistence'
 import { buildSystemConnection } from '@/lib/system-store'
@@ -107,10 +109,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [cfg, persisted, persistedAudit] = await Promise.all([
+      const [cfg, persisted, persistedAudit, persistedHistory] = await Promise.all([
         loadAppConfig(),
         loadConnections(),
         SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadAuditLog(),
+        SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadQueryHistory(),
       ])
       if (cancelled) return
 
@@ -147,8 +150,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // Viewers without audit.view just see an empty log.
         }
-      } else if (persistedAudit.length > 0) {
-        setAuditLog(persistedAudit)
+        try {
+          const res = await fetch('/api/system/query-history')
+          if (res.ok) {
+            const { entries } = (await res.json()) as { entries: QueryHistoryItem[] }
+            setQueryHistory(entries)
+          }
+        } catch {
+          // Not authenticated yet, or the request failed — history stays empty.
+        }
+      } else {
+        if (persistedAudit.length > 0) setAuditLog(persistedAudit)
+        if (persistedHistory.length > 0) setQueryHistory(persistedHistory)
       }
       setHydrated(true)
     })()
@@ -408,10 +421,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const recordQuery = React.useCallback(
     (item: Omit<QueryHistoryItem, 'id' | 'timestamp'>) => {
-      setQueryHistory((prev) => [
-        { ...item, id: nextId('q'), timestamp: Date.now() },
-        ...prev,
-      ])
+      const entry: QueryHistoryItem = { ...item, id: nextId('q'), timestamp: Date.now() }
+      setQueryHistory((prev) => [entry, ...prev])
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        fetch('/api/system/query-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item),
+        }).catch(() => {})
+      } else {
+        saveQueryHistoryItem(entry).catch(() => {})
+      }
     },
     [],
   )

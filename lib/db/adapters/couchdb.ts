@@ -1,4 +1,4 @@
-import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, FieldSample, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 interface CouchDBConfig extends ConnectionConfig {
@@ -233,6 +233,40 @@ export class CouchDBAdapter implements DBAdapter {
         statement: String(raw),
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.baseUrl) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+    try {
+      const res = await this.fetchRaw('/')
+      if (res.ok) {
+        const body = (await res.json()) as { version?: string }
+        if (body.version) metrics.version = `CouchDB ${body.version}`
+      }
+    } catch { /* leave unset */ }
+    try {
+      const res = await this.fetchRaw('/_node/_local/_system')
+      if (res.ok) {
+        const body = (await res.json()) as {
+          uptime?: number
+          memory?: Record<string, number>
+        }
+        if (typeof body.uptime === 'number') metrics.uptimeSeconds = Math.floor(body.uptime)
+        if (body.memory) {
+          const total = Object.values(body.memory).reduce(
+            (a, b) => a + (typeof b === 'number' ? b : 0),
+            0,
+          )
+          if (total > 0) metrics.memoryBytes = total
+        }
+      } else {
+        metrics.unavailableReason = 'CouchDB /_node/_local/_system requires server admin privileges.'
+      }
+    } catch {
+      metrics.unavailableReason = metrics.unavailableReason ?? 'Could not reach the CouchDB system stats endpoint.'
+    }
+    return metrics
   }
 
   async disconnect(): Promise<void> {

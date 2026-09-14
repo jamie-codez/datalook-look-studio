@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise'
-import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult } from '../types'
+import type { DBAdapter, ConnectionConfig, ColumnDef, QueryResult, ServerMetrics } from '../types'
 import { DBError } from '../types'
 
 const SYSTEM_SCHEMAS = new Set(['information_schema', 'mysql', 'performance_schema', 'sys'])
@@ -130,6 +130,61 @@ export class MysqlAdapter implements DBAdapter {
         statement: sql,
       }
     }
+  }
+
+  async getServerMetrics(): Promise<ServerMetrics> {
+    if (!this.pool) throw new DBError('Not connected', 'unknown')
+    const metrics: ServerMetrics = {}
+
+    const statusVar = async (name: string): Promise<string | undefined> => {
+      try {
+        const [rows] = await this.pool!.query('SHOW GLOBAL STATUS LIKE ?', [name])
+        return ((rows as any[])[0] as any)?.Value
+      } catch {
+        return undefined
+      }
+    }
+
+    try {
+      const [rows] = await this.pool.query('SELECT VERSION() AS v')
+      metrics.version = ((rows as any[])[0] as any)?.v
+    } catch { /* leave unset */ }
+
+    const uptime = await statusVar('Uptime')
+    if (uptime) metrics.uptimeSeconds = parseInt(uptime, 10)
+
+    try {
+      const threads = await statusVar('Threads_connected')
+      const [maxRows] = await this.pool.query("SHOW VARIABLES LIKE 'max_connections'")
+      const max = ((maxRows as any[])[0] as any)?.Value
+      if (threads) {
+        metrics.connections = { current: parseInt(threads, 10), max: max ? parseInt(max, 10) : undefined }
+      }
+    } catch { /* leave unset */ }
+
+    try {
+      const reqs = Number(await statusVar('Innodb_buffer_pool_read_requests'))
+      const reads = Number(await statusVar('Innodb_buffer_pool_reads'))
+      if (reqs > 0) metrics.cacheHitRatio = 1 - reads / reqs
+    } catch { /* leave unset */ }
+
+    try {
+      const questions = await statusVar('Questions')
+      if (questions && metrics.uptimeSeconds) {
+        metrics.opsPerSecond = Number(questions) / metrics.uptimeSeconds
+        metrics.opsPerSecondLabel = 'Queries/sec (avg since start)'
+      }
+    } catch { /* leave unset */ }
+
+    try {
+      const [rows] = await this.pool.query(
+        'SELECT SUM(data_length + index_length) AS sz FROM information_schema.tables WHERE table_schema = DATABASE()',
+      )
+      const sz = ((rows as any[])[0] as any)?.sz
+      if (sz !== null && sz !== undefined) metrics.databaseSizeBytes = Number(sz)
+    } catch { /* leave unset */ }
+
+    return metrics
   }
 
   async disconnect(): Promise<void> {

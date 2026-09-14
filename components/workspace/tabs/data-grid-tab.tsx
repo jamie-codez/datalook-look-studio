@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import type { Tab, QueryResult } from "@/lib/types"
+import { findTable } from "@/lib/mock-data"
 import { useWorkspace } from "@/components/providers/workspace-provider"
 import { useRBAC } from "@/components/providers/auth-provider"
 import { ResultsGrid } from "@/components/workspace/results-grid"
@@ -52,7 +53,11 @@ export function DataGridTab({ tab }: { tab: Tab }) {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [editing, setEditing] = useState<EditState | null>(null)
 
-  const tableName = tab.tableId || ''
+  // tab.tableId is the fully-qualified tree id (e.g. "conn-system.datalook.users"),
+  // not the bare table/collection name the rows API expects — resolve it via the
+  // same lookup properties-tab.tsx uses rather than guessing at string-splitting.
+  const table = tab.tableId ? findTable(connections, tab.tableId) : undefined
+  const tableName = table?.name || tab.tableId || ''
   const database = connection?.database || ''
   const meta = connection ? driverMeta(connection.driver) : null
   const canEdit = role !== "Viewer" && !connection?.readOnly

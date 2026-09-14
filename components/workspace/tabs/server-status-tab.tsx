@@ -1,45 +1,71 @@
 "use client"
 
+import * as React from "react"
 import type { Tab } from "@/lib/types"
 import { useWorkspace } from "@/components/providers/workspace-provider"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { ServerIcon, CpuIcon, HardDriveIcon, ActivityIcon, GaugeIcon, ClockIcon, FlaskConicalIcon } from "lucide-react"
+import { fetchServerMetrics, type ServerMetrics } from "@/lib/db/api-client"
+import {
+  ServerIcon,
+  ActivityIcon,
+  GaugeIcon,
+  ClockIcon,
+  MemoryStickIcon,
+  DatabaseIcon,
+  InfoIcon,
+  RefreshCwIcon,
+  LoaderCircleIcon,
+} from "lucide-react"
 
-// Deterministic pseudo-metrics derived from connection id so they are stable.
-// No adapter collects real server metrics yet (CPU/memory/disk/QPS require
-// driver-specific monitoring queries that don't exist for any driver in this
-// app) — these numbers are illustrative only, never live data.
-function metricsFor(seed: string) {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
-  const r = (n: number) => ((h >> n) & 0xff) / 255
-  return {
-    cpu: Math.round(12 + r(0) * 55),
-    memory: Math.round(30 + r(3) * 55),
-    disk: Math.round(20 + r(6) * 60),
-    connections: Math.round(4 + r(9) * 80),
-    qps: Math.round(50 + r(12) * 900),
-    cacheHit: Math.round(88 + r(16) * 11),
-  }
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-function Meter({ label, value, unit = "%", icon: Icon }: { label: string; value: number; unit?: string; icon: typeof CpuIcon }) {
-  const tone = value > 80 ? "bg-destructive" : value > 60 ? "bg-warning" : "bg-chart-2"
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  barPercent,
+}: {
+  label: string
+  value: React.ReactNode
+  icon: typeof ActivityIcon
+  /** 0-100, renders a progress bar when the metric has a meaningful ceiling */
+  barPercent?: number
+}) {
+  const tone =
+    barPercent !== undefined
+      ? barPercent > 80
+        ? "bg-destructive"
+        : barPercent > 60
+          ? "bg-warning"
+          : "bg-chart-2"
+      : ""
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="size-4" aria-hidden />
         {label}
       </div>
-      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">
-        {value}
-        <span className="ml-0.5 text-base text-muted-foreground">{unit}</span>
-      </p>
-      {unit === "%" && (
+      <p className="mt-2 font-mono text-2xl font-semibold text-foreground">{value}</p>
+      {barPercent !== undefined && (
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className={`h-full rounded-full ${tone}`} style={{ width: `${value}%` }} />
+          <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(100, Math.max(0, barPercent))}%` }} />
         </div>
       )}
     </div>
@@ -49,6 +75,29 @@ function Meter({ label, value, unit = "%", icon: Icon }: { label: string; value:
 export function ServerStatusTab({ tab }: { tab: Tab }) {
   const { connections } = useWorkspace()
   const connection = connections.find((c) => c.id === tab.connectionId)
+
+  const [metrics, setMetrics] = React.useState<ServerMetrics | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const load = React.useCallback(async () => {
+    if (!connection) return
+    setLoading(true)
+    setError(null)
+    try {
+      const m = await fetchServerMetrics(connection.id)
+      setMetrics(m)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load server metrics")
+      setMetrics(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [connection?.id])
+
+  React.useEffect(() => {
+    load()
+  }, [load])
 
   if (!connection) {
     return (
@@ -63,13 +112,9 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
     )
   }
 
-  const m = metricsFor(connection.id)
-  const days = Math.floor(connection.uptimeHours / 24)
-  const hours = connection.uptimeHours % 24
-
   const meta: [string, string][] = [
     ["Driver", connection.driver],
-    ["Version", connection.version],
+    ["Version", metrics?.version || connection.version || "—"],
     ["Host", connection.host],
     ["Port", String(connection.port)],
     ["Database", connection.database],
@@ -78,6 +123,9 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
     ["Schemas", String(connection.schemas.length)],
     ["Topology", connection.topology ?? "standalone"],
   ]
+  if (metrics?.extra) {
+    for (const [k, v] of Object.entries(metrics.extra)) meta.push([k, String(v)])
+  }
 
   return (
     <ScrollArea className="h-full">
@@ -103,26 +151,93 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
           </Badge>
           <span className="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground">
             <ClockIcon className="size-4" aria-hidden />
-            Uptime {days}d {hours}h
+            {metrics?.uptimeSeconds !== undefined ? `Uptime ${formatUptime(metrics.uptimeSeconds)}` : "Uptime —"}
           </span>
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+            {loading ? (
+              <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCwIcon className="size-3.5" aria-hidden />
+            )}
+            Refresh
+          </Button>
         </div>
 
-        <div
-          className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-dashed border-border bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground"
-          title="No driver reports live server metrics yet — these numbers are illustrative, not real telemetry from this connection."
-        >
-          <FlaskConicalIcon className="size-3.5" aria-hidden />
-          Simulated metrics
-        </div>
+        {error && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+            <InfoIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>Couldn&apos;t reach this connection for live metrics: {error}</span>
+          </div>
+        )}
 
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-          <Meter label="CPU" value={m.cpu} icon={CpuIcon} />
-          <Meter label="Memory" value={m.memory} icon={ActivityIcon} />
-          <Meter label="Disk" value={m.disk} icon={HardDriveIcon} />
-          <Meter label="Active connections" value={m.connections} unit="" icon={GaugeIcon} />
-          <Meter label="Queries / sec" value={m.qps} unit="" icon={ActivityIcon} />
-          <Meter label="Cache hit ratio" value={m.cacheHit} icon={GaugeIcon} />
-        </div>
+        {!error && metrics?.unavailableReason && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground">
+            <InfoIcon className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>{metrics.unavailableReason}</span>
+          </div>
+        )}
+
+        {!error && loading && !metrics && (
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-[92px] animate-pulse rounded-lg border border-border bg-muted/40" />
+            ))}
+          </div>
+        )}
+
+        {!error && metrics && (
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+            {metrics.connections && (
+              <Stat
+                label="Active connections"
+                value={
+                  metrics.connections.max
+                    ? `${metrics.connections.current} / ${metrics.connections.max}`
+                    : metrics.connections.current
+                }
+                icon={GaugeIcon}
+                barPercent={
+                  metrics.connections.max
+                    ? (metrics.connections.current / metrics.connections.max) * 100
+                    : undefined
+                }
+              />
+            )}
+            {metrics.memoryBytes !== undefined && (
+              <Stat label="Memory (server process)" value={formatBytes(metrics.memoryBytes)} icon={MemoryStickIcon} />
+            )}
+            {metrics.databaseSizeBytes !== undefined && (
+              <Stat label="Database size" value={formatBytes(metrics.databaseSizeBytes)} icon={DatabaseIcon} />
+            )}
+            {metrics.cacheHitRatio !== undefined && (
+              <Stat
+                label="Cache hit ratio"
+                value={`${Math.round(metrics.cacheHitRatio * 100)}%`}
+                icon={GaugeIcon}
+                barPercent={metrics.cacheHitRatio * 100}
+              />
+            )}
+            {metrics.opsPerSecond !== undefined && (
+              <Stat
+                label={metrics.opsPerSecondLabel || "Ops/sec"}
+                value={metrics.opsPerSecond.toFixed(1)}
+                icon={ActivityIcon}
+              />
+            )}
+          </div>
+        )}
+
+        {!error &&
+          metrics &&
+          !metrics.connections &&
+          metrics.memoryBytes === undefined &&
+          metrics.databaseSizeBytes === undefined &&
+          metrics.cacheHitRatio === undefined &&
+          metrics.opsPerSecond === undefined && (
+            <p className="mt-5 text-sm text-muted-foreground">
+              No live metrics fields were available from this driver right now.
+            </p>
+          )}
 
         <h3 className="mt-6 mb-2 text-sm font-semibold text-foreground">Server information</h3>
         <div className="overflow-hidden rounded-lg border border-border">

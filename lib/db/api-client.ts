@@ -41,6 +41,19 @@ export interface QueryResult {
   statement: string
 }
 
+export interface ServerMetrics {
+  version?: string
+  uptimeSeconds?: number
+  connections?: { current: number; max?: number }
+  memoryBytes?: number
+  cacheHitRatio?: number
+  opsPerSecond?: number
+  opsPerSecondLabel?: string
+  databaseSizeBytes?: number
+  extra?: Record<string, string | number>
+  unavailableReason?: string
+}
+
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -109,6 +122,13 @@ export async function executeQuery(
     },
   )
   return res
+}
+
+export async function fetchServerMetrics(connectionId: string): Promise<ServerMetrics> {
+  const res = await apiFetch<{ metrics: ServerMetrics }>(
+    `/api/connections/${encodeURIComponent(connectionId)}/metrics`,
+  )
+  return res.metrics
 }
 
 export async function createConnection(config: {
