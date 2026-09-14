@@ -30,6 +30,7 @@ services:
         NEXT_PUBLIC_DEFAULT_DB_NAME: app
         NEXT_PUBLIC_AES_KEY: secret
         NEXT_PUBLIC_SKIP_ONBOARDING: "true"
+        NEXT_PUBLIC_SYSTEM_BACKEND: postgres
     container_name: cbd-app
     restart: unless-stopped
     ports:
@@ -56,6 +57,8 @@ services:
       NEXT_PUBLIC_DEFAULT_DB_NAME: app
       NEXT_PUBLIC_AES_KEY: secret
       NEXT_PUBLIC_SKIP_ONBOARDING: "true"
+      NEXT_PUBLIC_SYSTEM_BACKEND: postgres
+      SESSION_SECRET: secret
     depends_on:
       postgres:
         condition: service_healthy

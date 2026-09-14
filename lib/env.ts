@@ -1,7 +1,10 @@
 // Central place for environment-driven configuration. All values are read
 // from NEXT_PUBLIC_* variables so they're available in both server and
-// client bundles — nothing here is a secret (this app has no real backend;
-// see components/providers/auth-provider.tsx for the demo auth limitations).
+// client bundles — nothing here is a secret. Whether there's a *real*
+// server-side backend behind auth and the system store depends on
+// SYSTEM_BACKEND below; server-only secrets (PG*, SESSION_SECRET,
+// CONN_ENCRYPTION_KEY) live outside this file since they must never reach
+// the client bundle.
 
 import { DRIVERS } from './drivers'
 import type { DriverId } from './types'
@@ -80,3 +83,20 @@ export const DEFAULT_DB_NAME =
  */
 export const SKIP_ONBOARDING =
   process.env.NEXT_PUBLIC_SKIP_ONBOARDING === 'true'
+
+/**
+ * Which backend actually holds the system store (users, roles, connection
+ * metadata, audit log, query history):
+ *  - "browser" (default): everything lives in the browser's IndexedDB and
+ *    auth is a client-side password comparison. No server-side identity.
+ *  - "postgres": the system store is the real Postgres database provisioned
+ *    by scripts/init-db.ts (schema "datalook"). Auth is real server-side
+ *    verification against a hashed password with a signed session cookie.
+ * Set alongside PGHOST/PGPORT/PGUSER/PGPASSWORD/SYSTEM_DB_NAME (server-only,
+ * see scripts/init-db.ts) — this flag only tells the client which code path
+ * to use, it carries no secrets.
+ */
+export const SYSTEM_BACKEND: 'browser' | 'postgres' =
+  process.env.NEXT_PUBLIC_SYSTEM_BACKEND === 'postgres' ? 'postgres' : 'browser'
+
+export const SYSTEM_BACKEND_IS_POSTGRES = SYSTEM_BACKEND === 'postgres'

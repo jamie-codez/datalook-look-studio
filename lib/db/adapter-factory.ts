@@ -1,4 +1,5 @@
 import type { DBAdapter, ConnectionConfig } from './types'
+import { DBError } from './types'
 import type { DriverId } from '@/lib/types'
 import { PostgresAdapter } from './adapters/postgres'
 import { MysqlAdapter } from './adapters/mysql'
@@ -18,7 +19,12 @@ const ADAPTER_FACTORIES: Record<DriverId, () => DBAdapter> = {
   cockroach: () => new CockroachAdapter(),
   clickhouse: () => new ClickHouseAdapter(),
   sqlite: () => new SqliteAdapter(),
-  mssql: () => new MysqlAdapter(), // placeholder — MSSSM uses tedious, not yet implemented
+  mssql: () => {
+    // No real adapter exists yet — MSSQL needs the tedious wire protocol,
+    // not MySQL's. Failing loudly here is safer than silently querying the
+    // wrong server with the wrong driver.
+    throw new DBError('SQL Server support is not implemented yet.', 'unsupported')
+  },
   mongodb: () => new MongoAdapter(),
   couchdb: () => new CouchDBAdapter(),
   redis: () => new RedisAdapter(),

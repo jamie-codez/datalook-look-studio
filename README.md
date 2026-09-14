@@ -1,6 +1,6 @@
 # Datalook Studio
 
-A self-hosted, browser-based database management dashboard for teams. Connect to PostgreSQL, MySQL, MongoDB, Redis, Cassandra, and more — all from a single, polished web UI with role-based access control, encrypted credentials, and zero backend dependencies.
+A self-hosted database management dashboard for teams. Connect to PostgreSQL, MySQL, MongoDB, Redis, Cassandra, and more — all from a single, polished web UI with role-based access control and encrypted credentials. Runs as a lightweight demo with no backend, or as a real deployment with server-verified auth and a Postgres-backed system store — see [Architecture](#architecture).
 
 ![Datalook Studio](public/logo-dark.svg)
 
@@ -10,10 +10,10 @@ Most database GUIs are desktop applications (DBeaver, TablePlus) or single-vendo
 
 **Datalook Studio** solves this by providing:
 
-- **Multi-engine support** — 11 database drivers (PostgreSQL, MySQL, MSSQL, CockroachDB, ClickHouse, MongoDB, CouchDB, Redis, Cassandra, DynamoDB, SQLite) from one interface.
+- **Multi-engine support** — 10 working database drivers (PostgreSQL, MySQL, CockroachDB, ClickHouse, MongoDB, CouchDB, Redis, Cassandra, DynamoDB, SQLite) from one interface. MSSQL is listed but not yet implemented — see [`lib/db/adapter-factory.ts`](lib/db/adapter-factory.ts).
 - **Role-based access control** — Built-in roles (Admin, Editor, Viewer) plus custom roles with fine-grained permissions. Shared and personal connections.
-- **Credentials encrypted at rest** — AES-GCM encryption via the Web Crypto API. Connection credentials are never stored in plaintext.
-- **Zero backend** — The entire app runs in the browser. Data is persisted in IndexedDB. No server, no database to manage.
+- **Credentials encrypted at rest** — AES-GCM encryption (server-side for connections created through the app; Web Crypto in the browser-only demo mode). Connection credentials are never stored in plaintext.
+- **Two deployment modes** — a zero-backend browser demo (all state in IndexedDB, no real auth) for trying the app, or a real backend (Postgres-backed users/roles/audit log, hashed passwords, signed sessions) for an actual team deployment. See [Architecture](#architecture).
 - **Team-ready** — Shared connections with per-user grants, audit logging, and an admin console for user management.
 - **SQL editor + data browser** — Write queries with syntax highlighting, browse table data, export results in CSV/TSV/JSON/Text formats.
 - **Query storage** — Save and reload queries per database type with IndexedDB persistence.
@@ -22,31 +22,54 @@ Most database GUIs are desktop applications (DBeaver, TablePlus) or single-vendo
 
 ## Architecture
 
+Datalook Studio has a real server-side layer: Next.js Route Handlers hold a
+connection-adapter framework (`lib/db/adapters/*`, one class per driver) that
+does the actual querying, so database credentials never reach the browser.
+What varies between deployment modes is **who the app's own users, roles, and
+audit log answer to** — controlled by `NEXT_PUBLIC_SYSTEM_BACKEND`:
+
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Browser (client)                   │
-│                                                       │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐ │
-│  │  React 19    │  │  Next.js 16  │  │ Tailwind v4 │ │
-│  │  UI Layer    │  │  App Router  │  │  + shadcn   │ │
-│  └──────┬───────┘  └──────┬───────┘  └─────────────┘ │
-│         │                  │                          │
-│  ┌──────┴──────────────────┴──────────────────────┐ │
-│  │              State Management                   │ │
-│  │  AuthProvider · WorkspaceProvider · ThemeProvider│ │
-│  └──────┬──────────────────────────────────────────┘ │
-│         │                                             │
-│  ┌──────┴──────────────────────────────────────────┐ │
-│  │           IndexedDB Persistence                  │ │
-│  │  meta · connections · queries · audit            │ │
-│  └──────┬──────────────────────────────────────────┘ │
-│         │                                             │
-│  ┌──────┴──────────────────────────────────────────┐ │
-│  │        Web Crypto API (AES-GCM)                  │ │
-│  │     Connection credential encryption at rest     │ │
-│  └─────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────┐        ┌───────────────────────────────┐
+│  NEXT_PUBLIC_SYSTEM_BACKEND=   │        │  NEXT_PUBLIC_SYSTEM_BACKEND=   │
+│  browser  (default, demo)      │        │  postgres (real deployment)    │
+│                                 │        │                                 │
+│  Browser                       │        │  Browser                       │
+│  ┌───────────────────────────┐ │        │  ┌───────────────────────────┐ │
+│  │ React UI · AuthProvider    │ │        │  │ React UI · AuthProvider    │ │
+│  │ (client-side password      │ │        │  │ (calls /api/auth/*,        │ │
+│  │  check, no server identity)│ │        │  │  session in httpOnly cookie│ │
+│  └──────────────┬──────────────┘ │        │  └──────────────┬──────────────┘ │
+│  ┌──────────────┴──────────────┐ │        │                 │                │
+│  │ IndexedDB: users, roles,    │ │        │  Server (Route Handlers)       │
+│  │ audit log, connection meta  │ │        │  ┌──────────────┴──────────────┐ │
+│  └───────────────────────────┘ │        │  │ /api/auth/* · /api/system/* │ │
+│                                 │        │  │ scrypt password hashing,    │ │
+│  Server (Route Handlers)       │        │  │ signed session cookies      │ │
+│  ┌───────────────────────────┐ │        │  └──────────────┬──────────────┘ │
+│  │ /api/connections/**        │ │        │  ┌──────────────┴──────────────┐ │
+│  │ (queries real databases    │ │        │  │ Postgres "datalook" schema  │ │
+│  │  the user connects to)     │ │        │  │ users · roles · audit_log   │ │
+│  └───────────────────────────┘ │        │  │ (scripts/init-db.ts)        │ │
+│                                 │        │  └──────────────┬──────────────┘ │
+│                                 │        │  ┌──────────────┴──────────────┐ │
+│                                 │        │  │ /api/connections/** (same   │ │
+│                                 │        │  │ adapter framework as left)  │ │
+│                                 │        │  └───────────────────────────┘ │
+└───────────────────────────────┘        └───────────────────────────────┘
 ```
+
+In both modes, connection credentials for databases you connect *to* are
+encrypted server-side (`lib/db/server-crypto.ts`, AES-256-GCM) and stored in
+`.data/connections.json` on the server filesystem — fine for a single-instance
+Docker/standalone deployment, but not for Vercel's ephemeral filesystem or a
+multi-instance deployment (see `docs/deployment/vercel.md`).
+
+The `postgres` backend is what `docker/docker-compose.yaml` runs by default.
+It gets you real server-verified login (hashed passwords, signed session
+cookies, no plaintext anywhere) and a real audit trail, but note: sessions are
+stateless signed tokens, not server-tracked — logging out clears the cookie
+but doesn't revoke the token itself, so a captured token remains valid until
+it expires (7 days). Set `SESSION_SECRET` explicitly for any real deployment.
 
 ### Key directories
 
@@ -106,18 +129,24 @@ The app is available at `http://localhost:3000`.
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_APP_ENV` | `development` | `production` for real deployments |
-| `NEXT_PUBLIC_DEFAULT_DB_DRIVER` | `postgres` | System store driver on first run |
+| `NEXT_PUBLIC_SYSTEM_BACKEND` | `browser` | `postgres` for a real server-backed system store + auth (see Architecture above) |
+| `NEXT_PUBLIC_DEFAULT_DB_DRIVER` | `postgres` | System store driver on first run (must be `postgres` when `NEXT_PUBLIC_SYSTEM_BACKEND=postgres`) |
 | `NEXT_PUBLIC_DEFAULT_ADMIN_NAME` | `Admin` | Initial admin display name |
 | `NEXT_PUBLIC_DEFAULT_ADMIN_EMAIL` | `admin@yourcompany.com` | Initial admin email |
-| `NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD` | `datalook` | Initial admin password |
+| `NEXT_PUBLIC_DEFAULT_ADMIN_PASSWORD` | `datalook` | Login password in `browser` backend mode only; ignored in `postgres` mode (see `ADMIN_PASSWORD` below) |
 | `NEXT_PUBLIC_SYSTEM_DB_NAME` | `datalook-studio` | System database name |
-| `NEXT_PUBLIC_DEFAULT_DB_HOST` | `localhost` | System store DB host |
-| `NEXT_PUBLIC_DEFAULT_DB_PORT` | _(driver default)_ | System store DB port |
-| `NEXT_PUBLIC_DEFAULT_DB_USER` | `system` | System store DB username |
-| `NEXT_PUBLIC_DEFAULT_DB_PASSWORD` | _(empty)_ | System store DB password |
-| `NEXT_PUBLIC_DEFAULT_DB_NAME` | _(same as SYSTEM_DB_NAME)_ | System store DB name |
 | `NEXT_PUBLIC_SKIP_ONBOARDING` | _(unset)_ | `true` to seed admin from env vars and skip onboarding; unset for interactive onboarding |
 | `NEXT_PUBLIC_AES_KEY` | _(auto-generated)_ | Base64-encoded 256-bit AES key for credential encryption |
+
+Server-only (never sent to the browser — required for `NEXT_PUBLIC_SYSTEM_BACKEND=postgres`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` | `localhost` / `5432` / `postgres` / `postgres` | Postgres connection used by `scripts/init-db.ts` and by the running app to read/write the real system store |
+| `SYSTEM_DB_NAME` | `datalook-studio` | Database name for the system store |
+| `ADMIN_NAME` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `Admin` / `admin@datalook.com` / `Datalook@123` | Admin user created by `scripts/init-db.ts` on first run (password is hashed before storage) |
+| `SESSION_SECRET` | _(insecure built-in default — set this)_ | Signs session cookies; generate with `openssl rand -base64 32` |
+| `CONN_ENCRYPTION_KEY` | _(hashed built-in default — set this)_ | Encrypts connection credentials at rest on the server filesystem |
 
 ### Option 2: Vercel
 
@@ -157,7 +186,7 @@ mkdocs serve
 - **Framework**: Next.js 16 (App Router, Turbopack)
 - **UI**: React 19, Tailwind CSS v4, shadcn/ui, Lucide icons
 - **State**: React Context (AuthProvider, WorkspaceProvider, ThemeProvider)
-- **Persistence**: IndexedDB with AES-GCM encryption (Web Crypto API)
+- **Persistence**: `browser` backend mode: IndexedDB with Web Crypto (AES-GCM). `postgres` backend mode: real Postgres schema (`scripts/init-db.ts`) for users/roles/audit log, server-side AES-256-GCM (Node crypto) for connection credentials
 - **Language**: TypeScript 5.7
 - **Package manager**: pnpm
 

@@ -40,7 +40,7 @@ const QUICK_ROLES: { role: Role; blurb: string }[] = [
 
 interface LoginScreenProps {
   users: User[]
-  onLogin: (email: string, password: string) => boolean
+  onLogin: (email: string, password: string) => boolean | Promise<boolean>
 }
 
 export function LoginScreen({ users, onLogin }: LoginScreenProps) {
@@ -55,9 +55,11 @@ export function LoginScreen({ users, onLogin }: LoginScreenProps) {
     if (pending) return
     setError(null)
     setPending(true)
-    // Simulate a network round-trip so the pending state is perceptible.
-    window.setTimeout(() => {
-      const ok = onLogin(email.trim().toLowerCase(), password)
+    // Simulate a network round-trip so the pending state is perceptible
+    // (real-backend logins already involve a real round-trip; the demo/
+    // browser-backend ones are instant otherwise).
+    window.setTimeout(async () => {
+      const ok = await onLogin(email.trim().toLowerCase(), password)
       if (!ok) {
         setError(isProduction
           ? 'Invalid email or password.'

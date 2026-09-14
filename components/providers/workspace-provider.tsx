@@ -29,7 +29,7 @@ import { SystemStoreSetup } from '@/components/workspace/system-store-setup'
 import { LoaderCircle } from 'lucide-react'
 import type { DriverId } from '@/lib/types'
 import { useAuth } from './auth-provider'
-import { isProduction, SKIP_ONBOARDING, DEFAULT_DB_DRIVER } from '@/lib/env'
+import { isProduction, SKIP_ONBOARDING, DEFAULT_DB_DRIVER, SYSTEM_BACKEND_IS_POSTGRES } from '@/lib/env'
 
 let idCounter = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${idCounter++}`
@@ -110,20 +110,44 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const [cfg, persisted, persistedAudit] = await Promise.all([
         loadAppConfig(),
         loadConnections(),
-        loadAuditLog(),
+        SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadAuditLog(),
       ])
       if (cancelled) return
 
       const merged = new Map<string, Connection>()
       if (!isProduction) for (const c of CONNECTIONS) merged.set(c.id, c)
       for (const c of persisted) merged.set(c.id, c)
-      if (cfg.initialized && cfg.systemStore) {
-        const sys = buildSystemConnection(cfg.systemStore.driver, currentUser.id)
+
+      // With SKIP_ONBOARDING, the setup dialog never runs — auto-complete it
+      // with the deployment's configured driver so the system store actually
+      // shows up in the navigator on first run.
+      let effectiveCfg = cfg
+      if (!cfg.initialized && SKIP_ONBOARDING) {
+        effectiveCfg = {
+          initialized: true,
+          systemStore: { driver: DEFAULT_DB_DRIVER, category: driverMeta(DEFAULT_DB_DRIVER).category },
+        }
+        await saveAppConfig(effectiveCfg)
+      }
+
+      if (effectiveCfg.initialized && effectiveCfg.systemStore) {
+        const sys = buildSystemConnection(effectiveCfg.systemStore.driver, currentUser.id)
         merged.set(sys.id, sys)
       }
       setAllConnections(Array.from(merged.values()))
-      setConfig(cfg)
-      if (persistedAudit.length > 0) {
+      setConfig(effectiveCfg)
+
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        try {
+          const res = await fetch('/api/system/audit-log')
+          if (res.ok) {
+            const { entries } = (await res.json()) as { entries: AuditLogItem[] }
+            setAuditLog(entries)
+          }
+        } catch {
+          // Viewers without audit.view just see an empty log.
+        }
+      } else if (persistedAudit.length > 0) {
         setAuditLog(persistedAudit)
       }
       setHydrated(true)
@@ -178,7 +202,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         status,
       }
       setAuditLog((prev) => [entry, ...prev])
-      saveAuditEntry(entry).catch(() => {})
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        fetch('/api/system/audit-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, target, status }),
+        }).catch(() => {})
+      } else {
+        saveAuditEntry(entry).catch(() => {})
+      }
     },
     [currentUser],
   )

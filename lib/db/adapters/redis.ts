@@ -147,7 +147,7 @@ export class RedisAdapter implements DBAdapter {
               case 'list': value = await this.client.lrange(k, 0, 9); break
               case 'hash': value = await this.client.hgetall(k); break
               case 'set': value = await this.client.smembers(k); break
-              case 'zset': value = await this.client.zrange(k, 0, 9); break
+              case 'zset': value = await this.client.zrange(k, '0', '9'); break
             }
             rows.push({ key: k, type, value })
           }

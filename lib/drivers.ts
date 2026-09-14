@@ -15,6 +15,8 @@ export interface DriverMeta {
   blurb: string
   /** whether this driver can back the app's own system store */
   systemCapable: boolean
+  /** false when there is no working adapter yet — shown disabled in pickers */
+  supported?: boolean
   /** vocabulary used when describing this store's structure in the UI */
   vocab: {
     /** top-level grouping (e.g. schema, database, keyspace) */
@@ -92,8 +94,9 @@ export const DRIVERS: Record<DriverId, DriverMeta> = {
     category: 'sql',
     defaultPort: 1433,
     accent: 'var(--chart-5)',
-    blurb: "Microsoft's T-SQL relational database.",
-    systemCapable: true,
+    blurb: "Microsoft's T-SQL relational database. Not yet supported — no adapter exists.",
+    systemCapable: false,
+    supported: false,
     vocab: SQL_VOCAB,
   },
   mongodb: {

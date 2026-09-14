@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { encryptServer, decryptServer, type ServerCredentials } from './server-crypto'
 import type { ConnectionConfig } from './types'
 import type { DriverId } from '@/lib/types'
+import { SYSTEM_CONNECTION_ID } from '@/lib/system-store'
 
 /**
  * Server-side connection store.
@@ -89,11 +90,32 @@ export function saveServerConnection(
   saveStore(store)
 }
 
+/**
+ * The system store's own connection (conn-system) is never created through
+ * the "New Connection" dialog — it's provisioned automatically from the
+ * same PG* env vars scripts/init-db.ts uses, so that browsing it in the
+ * navigator hits the real "datalook" schema instead of 404ing.
+ */
+function systemConnectionConfig(): ConnectionConfig | null {
+  if (!process.env.PGHOST) return null
+  return {
+    id: SYSTEM_CONNECTION_ID,
+    driver: 'postgres',
+    host: process.env.PGHOST,
+    port: parseInt(process.env.PGPORT || '5432', 10),
+    database: process.env.SYSTEM_DB_NAME || 'datalook-studio',
+    username: process.env.PGUSER || 'postgres',
+    password: process.env.PGPASSWORD || 'postgres',
+  }
+}
+
 /** Load a connection config with decrypted credentials. */
 export function loadServerConnection(id: string): ConnectionConfig | null {
   const store = loadStore()
   const stored = store[id]
-  if (!stored) return null
+  if (!stored) {
+    return id === SYSTEM_CONNECTION_ID ? systemConnectionConfig() : null
+  }
   const creds = decryptServer<ServerCredentials>(stored.enc)
   return {
     id: stored.id,

@@ -2,6 +2,35 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
 import { DBError } from '@/lib/db/types'
+import { SYSTEM_CONNECTION_ID } from '@/lib/system-store'
+import { getSessionFromRequest } from '@/lib/auth/session'
+
+/**
+ * Never let the generic row browser return password hashes, even to an
+ * authenticated viewer of the system store — browsing the real "datalook"
+ * schema is otherwise a plain SELECT * away from every user's hash.
+ */
+const REDACTED_COLUMNS: Record<string, string[]> = {
+  users: ['password_hash'],
+}
+
+/**
+ * The system connection (conn-system) only exists server-side once a real
+ * Postgres backend is configured (see lib/db/server-store.ts) — everything
+ * else in this app's connections API trusts the browser's own RBAC, but the
+ * system store holds real user records, so reads require a live session and
+ * writes require the Admin role, mirroring effectiveConnectionRole() in
+ * lib/rbac.ts for isSystem connections.
+ */
+function guardSystemConnection(request: NextRequest, id: string, requireAdmin: boolean): NextResponse | null {
+  if (id !== SYSTEM_CONNECTION_ID) return null
+  const session = getSessionFromRequest(request)
+  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (requireAdmin && session.role !== 'Admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return null
+}
 
 /** GET — fetch paginated rows from a table/collection */
 export async function GET(
@@ -14,6 +43,8 @@ export async function GET(
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
+    const guardResponse = guardSystemConnection(request, id, false)
+    if (guardResponse) return guardResponse
 
     const sp = request.nextUrl.searchParams
     const page = parseInt(sp.get('page') || '1', 10)
@@ -76,6 +107,18 @@ export async function GET(
 
     const result = await adapter.query(query)
 
+    if (id === SYSTEM_CONNECTION_ID) {
+      const redacted = REDACTED_COLUMNS[decodedTable.toLowerCase()]
+      if (redacted && redacted.length > 0) {
+        result.columns = result.columns.filter((c) => !redacted.includes(c))
+        result.rows = result.rows.map((row) => {
+          const copy = { ...row }
+          for (const col of redacted) delete copy[col]
+          return copy
+        })
+      }
+    }
+
     // Also get total count for pagination
     let total: number | undefined
     if (!['mongodb', 'couchdb', 'dynamodb', 'redis'].includes(driver)) {
@@ -127,6 +170,8 @@ export async function POST(
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
+    const guardResponse = guardSystemConnection(request, id, true)
+    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)
@@ -176,6 +221,8 @@ export async function PUT(
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
+    const guardResponse = guardSystemConnection(request, id, true)
+    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)
@@ -234,6 +281,8 @@ export async function DELETE(
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
+    const guardResponse = guardSystemConnection(request, id, true)
+    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)

@@ -12,6 +12,7 @@ import {
   DEFAULT_DB_PASSWORD,
   DEFAULT_DB_NAME,
   isProduction,
+  SYSTEM_BACKEND_IS_POSTGRES,
 } from './env'
 
 export const SYSTEM_CONNECTION_ID = 'conn-system'
@@ -207,7 +208,12 @@ export function buildSystemConnection(
   ownerId: string,
 ): Connection {
   const meta = driverMeta(driver)
-  const schemaName = meta.vocab.container
+  // When a real Postgres system backend is configured, the schema is the
+  // actual "datalook" schema scripts/init-db.ts provisions — table browsing
+  // routes through the generic Postgres adapter to real rows, so this name
+  // must match the real schema rather than the decorative vocab word.
+  const isRealBackend = SYSTEM_BACKEND_IS_POSTGRES && driver === 'postgres'
+  const schemaName = isRealBackend ? 'datalook' : meta.vocab.container
   const schemaId = `${SYSTEM_CONNECTION_ID}.${schemaName}`
   return {
     id: SYSTEM_CONNECTION_ID,
@@ -218,10 +224,10 @@ export function buildSystemConnection(
     database: DEFAULT_DB_NAME || SYSTEM_DB_NAME,
     username: DEFAULT_DB_USER,
     password: DEFAULT_DB_PASSWORD,
-    status: isProduction ? 'disconnected' : 'connected',
+    status: isRealBackend ? 'connected' : isProduction ? 'disconnected' : 'connected',
     readOnly: false,
     accent: meta.accent,
-    version: isProduction ? '' : `${meta.label} (system)`,
+    version: isRealBackend ? `${meta.label} (system)` : isProduction ? '' : `${meta.label} (system)`,
     uptimeHours: 0,
     scope: 'shared',
     ownerId,
@@ -237,7 +243,10 @@ export function buildSystemConnection(
           id: `${schemaId}.${d.name}`,
           name: d.name,
           kind: d.kind,
-          rowCount: isProduction ? 0 : d.rowCount,
+          // Real backend: unknown until the table is opened (the rows API
+          // runs a live COUNT(*)) — showing a fabricated number here would
+          // misrepresent real data, so leave it at 0 rather than guess.
+          rowCount: isRealBackend || isProduction ? 0 : d.rowCount,
           columns: d.columns,
         })),
       },

@@ -5,9 +5,12 @@ import { useWorkspace } from "@/components/providers/workspace-provider"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { ServerIcon, CpuIcon, HardDriveIcon, ActivityIcon, GaugeIcon, ClockIcon } from "lucide-react"
+import { ServerIcon, CpuIcon, HardDriveIcon, ActivityIcon, GaugeIcon, ClockIcon, FlaskConicalIcon } from "lucide-react"
 
 // Deterministic pseudo-metrics derived from connection id so they are stable.
+// No adapter collects real server metrics yet (CPU/memory/disk/QPS require
+// driver-specific monitoring queries that don't exist for any driver in this
+// app) — these numbers are illustrative only, never live data.
 function metricsFor(seed: string) {
   let h = 0
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
@@ -104,7 +107,15 @@ export function ServerStatusTab({ tab }: { tab: Tab }) {
           </span>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+        <div
+          className="mt-5 flex w-fit items-center gap-1.5 rounded-full border border-dashed border-border bg-muted/50 px-2.5 py-1 text-xs text-muted-foreground"
+          title="No driver reports live server metrics yet — these numbers are illustrative, not real telemetry from this connection."
+        >
+          <FlaskConicalIcon className="size-3.5" aria-hidden />
+          Simulated metrics
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
           <Meter label="CPU" value={m.cpu} icon={CpuIcon} />
           <Meter label="Memory" value={m.memory} icon={ActivityIcon} />
           <Meter label="Disk" value={m.disk} icon={HardDriveIcon} />

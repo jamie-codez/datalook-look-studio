@@ -400,13 +400,16 @@ export function NewConnectionDialog({
                       <SelectGroup key={category}>
                         <SelectLabel>{CATEGORY_LABEL[category]}</SelectLabel>
                         {drivers.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>
+                          <SelectItem key={d.id} value={d.id} disabled={d.supported === false}>
                             <span
                               className="size-2 rounded-full"
                               style={{ backgroundColor: d.accent }}
                               aria-hidden
                             />
                             {d.label}
+                            {d.supported === false && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">(not yet supported)</span>
+                            )}
                           </SelectItem>
                         ))}
                       </SelectGroup>
