@@ -51,8 +51,9 @@ feature branch --PR--> main --> dev --> prod
 - Promote `dev` into `prod` (`prod` is created from `dev`).
 - Pushing to `dev` publishes a pre-release such as `1.4.0-dev.2`.
 - Pushing to `prod` publishes a stable release such as `1.4.0`.
-- After a release, bring the version bump commit back into `main` so the
-  branches don't drift.
+- Releases don't commit back to `dev` or `prod`. The version lives in the git
+  tag and the GitHub release, so promotions are the only changes to those
+  branches.
 
 Releases are automatic. Every push to `dev` or `prod` runs
 [semantic-release](https://github.com/semantic-release/semantic-release)
@@ -66,11 +67,10 @@ Releases are automatic. Every push to `dev` or `prod` runs
 | `docs:`, `chore:`, `refactor:`, `test:`, … | no release |
 
 When a release is published, the release workflow (`.github/workflows/release.yml`)
-updates `CHANGELOG.md` and `package.json`, tags `vX.Y.Z`, creates the GitHub
-release, attaches a standalone server tarball with its SHA-256 checksum, and
+tags `vX.Y.Z`, creates the GitHub release with generated notes, attaches a standalone server tarball with its SHA-256 checksum, and
 pushes the container image to `ghcr.io/<owner>/<repo>`. Stable releases also
 move `latest`; pre-releases don't.
-Do not edit the version or the changelog by hand.
+Do not create version tags or releases by hand.
 
 ## Code style
 
