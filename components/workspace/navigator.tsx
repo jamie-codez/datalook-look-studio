@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { toast } from 'sonner'
+import { fetchStructure, structureToColumns } from '@/lib/db/api-client'
+import { quoteIdent } from '@/lib/db/sql-dialect'
 import {
   ChevronRight,
   Database,
@@ -30,6 +32,7 @@ import {
   UserCog,
   Settings,
   LifeBuoy,
+  RefreshCw,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -50,7 +53,7 @@ import { NewConnectionDialog } from './new-connection-dialog'
 import { DatabaseBrowserDialog } from './database-browser-dialog'
 import { HelpDialog } from './help-dialog'
 import { connectionCapabilities, connectionRoleLabel } from '@/lib/rbac'
-import { containerLabel, entityPlural } from '@/lib/drivers'
+import { containerLabel, driverMeta, entityPlural } from '@/lib/drivers'
 import { cn } from '@/lib/utils'
 import type { Column, Connection, SchemaMeta, TableMeta } from '@/lib/types'
 
@@ -165,40 +168,60 @@ function TableRow({
 }) {
   const { openTab } = useWorkspace()
   const [expanded, setExpanded] = React.useState(false)
+  const [liveColumns, setLiveColumns] = React.useState<Column[] | null>(null)
+  // Document and key-value stores have no schema level, so there's nothing to qualify with.
+  const schemaForQuery = driverMeta(connection.driver).category === 'sql' ? schemaName : undefined
+  const columns = table.columns.length > 0 ? table.columns : liveColumns ?? []
+
+  // Columns for a live table are fetched the first time the row is expanded.
+  React.useEffect(() => {
+    if (!expanded || table.columns.length > 0 || liveColumns !== null) return
+    let cancelled = false
+    fetchStructure(connection.id, connection.database, table.name, schemaForQuery)
+      .then((structure) => {
+        if (cancelled) return
+        setLiveColumns(structureToColumns(structure))
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setLiveColumns([])
+        toast.error(`Couldn't read columns for ${table.name}`, { description: err.message })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [expanded, table.columns.length, table.name, liveColumns, connection.id, connection.database, schemaForQuery])
+
+  function tabAddress() {
+    return {
+      connectionId: connection.id,
+      databaseName: connection.database,
+      schemaName: schemaForQuery,
+      tableName: table.name,
+      tableId: table.id,
+    }
+  }
 
   function openData() {
-    openTab(
-      {
-        kind: 'data',
-        title: table.name,
-        connectionId: connection.id,
-        schemaName,
-        tableId: table.id,
-      },
-      { focusExisting: true },
-    )
+    openTab({ kind: 'data', title: table.name, ...tabAddress() }, { focusExisting: true })
   }
 
   function openProperties() {
     openTab(
-      {
-        kind: 'properties',
-        title: `${table.name} · properties`,
-        connectionId: connection.id,
-        schemaName,
-        tableId: table.id,
-      },
+      { kind: 'properties', title: `${table.name} · properties`, ...tabAddress() },
       { focusExisting: true },
     )
   }
 
   function generateSelect() {
-    const cols = table.columns.map((c) => c.name).join(', ')
+    const q = (name: string) => quoteIdent(connection.driver, name)
+    const cols = columns.length > 0 ? columns.map((c) => q(c.name)).join(', ') : '*'
+    const from = schemaForQuery ? `${q(schemaForQuery)}.${q(table.name)}` : q(table.name)
     openTab({
       kind: 'sql',
       title: `SELECT ${table.name}`,
       connectionId: connection.id,
-      sql: `SELECT ${cols}\nFROM ${schemaName}.${table.name}\nLIMIT 100;`,
+      sql: `SELECT ${cols}\nFROM ${from}\nLIMIT 100;`,
     })
   }
 
@@ -224,9 +247,11 @@ function TableRow({
         label={<span className="truncate">{table.name}</span>}
         trailing={
           <div className="flex items-center gap-1">
-            <span className="hidden text-[10px] text-muted-foreground tabular-nums group-hover/row:hidden md:inline">
-              {table.rowCount.toLocaleString()}
-            </span>
+            {table.rowCount > 0 && (
+              <span className="hidden text-[10px] text-muted-foreground tabular-nums group-hover/row:hidden md:inline">
+                {table.rowCount.toLocaleString()}
+              </span>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -262,7 +287,7 @@ function TableRow({
         }
       />
       {expanded &&
-        table.columns.map((col) => (
+        columns.map((col) => (
           <ColumnRow key={col.name} col={col} depth={depth + 1} />
         ))}
     </>
@@ -427,12 +452,31 @@ function ConnectionBranch({
   filter: string
   selected: boolean
 }) {
-  const { openTab, removeConnection, logAudit, connectionRoleFor } =
+  const { openTab, removeConnection, logAudit, connectionRoleFor, loadSchemaTree } =
     useWorkspace()
   const [expanded, setExpanded] = React.useState(false)
   const [manageOpen, setManageOpen] = React.useState(false)
   const [editOpen, setEditOpen] = React.useState(false)
   const [browseOpen, setBrowseOpen] = React.useState(false)
+  const [loadingTree, setLoadingTree] = React.useState(false)
+  const treeRequested = React.useRef(false)
+
+  const runTreeLoad = React.useCallback(() => {
+    treeRequested.current = true
+    setLoadingTree(true)
+    loadSchemaTree(connection)
+      .catch((err: Error) => {
+        toast.error(`Couldn't load ${connection.name}`, { description: err.message })
+      })
+      .finally(() => setLoadingTree(false))
+  }, [loadSchemaTree, connection])
+
+  // Fetch the tree the first time this connection is opened, not on every render.
+  React.useEffect(() => {
+    if (!(expanded || filter) || treeRequested.current) return
+    if (connection.schemas.length > 0) return
+    runTreeLoad()
+  }, [expanded, filter, connection.schemas.length, runTreeLoad])
 
   const connMatches = !filter || connection.name.toLowerCase().includes(filter.toLowerCase())
   const hasMatchingSchema = filter
@@ -452,14 +496,15 @@ function ConnectionBranch({
   const isShared = connection.scope === 'shared'
   const canManageAccess = isShared && !!caps?.canManageAccess
 
-  const statusColor =
-    connection.status === 'connected'
+  const statusColor = loadingTree
+    ? 'bg-primary animate-pulse'
+    : connection.status === 'connected'
       ? 'bg-success'
       : connection.status === 'error'
         ? 'bg-destructive'
         : 'bg-muted-foreground'
 
-  function handleRemove() {
+  async function handleRemove() {
     if (!caps?.canDelete) {
       logAudit('Remove connection', connection.name, 'blocked')
       toast.error('Permission denied', {
@@ -469,7 +514,15 @@ function ConnectionBranch({
       })
       return
     }
-    removeConnection(connection.id)
+    try {
+      await removeConnection(connection.id)
+    } catch (err) {
+      logAudit('Remove connection', connection.name, 'blocked')
+      toast.error(`Couldn't remove "${connection.name}"`, {
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+      return
+    }
     logAudit('Remove connection', connection.name, 'allowed')
     toast.success(`Removed "${connection.name}"`)
   }
@@ -485,13 +538,16 @@ function ConnectionBranch({
         open={browseOpen}
         onOpenChange={setBrowseOpen}
         connection={connection}
-        onSelect={(_db, _schema, table) => {
+        onSelect={(db, schema, table) => {
           openTab(
             {
               kind: 'data',
               title: `${connection.name} · ${table}`,
               connectionId: connection.id,
-              tableId: table,
+              databaseName: db,
+              schemaName: schema,
+              tableName: table,
+              tableId: `${connection.id}.${db}.${schema ?? ''}.${table}`,
             },
             { focusExisting: true },
           )
@@ -567,6 +623,12 @@ function ConnectionBranch({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
+                  <DropdownMenuItem
+                    onClick={runTreeLoad}
+                  >
+                    <RefreshCw />
+                    Refresh schema
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setBrowseOpen(true)}>
                     <FolderSearch />
                     Browse databases

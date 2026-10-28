@@ -159,7 +159,11 @@ export interface Tab {
   kind: TabKind
   title: string
   connectionId?: string
+  /** database the table lives in; falls back to the connection's default database */
+  databaseName?: string
   schemaName?: string
+  /** bare table/collection name as the server knows it (not the tree id) */
+  tableName?: string
   tableId?: string
   /** live sql for editor tabs */
   sql?: string

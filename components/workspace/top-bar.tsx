@@ -50,6 +50,7 @@ import { useWorkspace } from '@/components/providers/workspace-provider'
 import { useRBAC } from '@/components/providers/auth-provider'
 import { emitWorkspaceEvent } from '@/lib/workspace-events'
 import { roleSummary } from '@/lib/rbac'
+import { driverMeta } from '@/lib/drivers'
 import { cn } from '@/lib/utils'
 import { isProduction } from '@/lib/env'
 
@@ -458,14 +459,15 @@ export function TopBar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
               })
             } else {
               const conn = connections.find((c) => c.id === sel.connectionId)
-              const schema = conn?.schemas.find((s) => s.name === sel.schemaName)
-              const table = schema?.tables.find((t) => t.id === sel.tableId)
-              if (table) {
+              if (conn && sel.tableName) {
                 openTab({
                   kind: 'data',
-                  title: table.name,
-                  connectionId: sel.connectionId,
-                  schemaName: sel.schemaName,
+                  title: sel.tableName,
+                  connectionId: conn.id,
+                  databaseName: conn.database,
+                  // Document and key-value stores have no schema level.
+                  schemaName: driverMeta(conn.driver).category === 'sql' ? sel.schemaName : undefined,
+                  tableName: sel.tableName,
                   tableId: sel.tableId,
                 })
               }

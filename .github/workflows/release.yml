@@ -1,0 +1,144 @@
+name: Release
+
+# Branch flow: main is the source of truth. Changes move main -> dev -> prod.
+# dev publishes pre-releases (X.Y.Z-dev.N), prod publishes stable releases.
+on:
+  push:
+    branches: [prod, dev]
+
+# One release per branch at a time, so two merges in a row can't race on the version bump.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Semantic release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      version: ${{ steps.semantic.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # semantic-release reads the full history and tags to find the last release.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # Analyses commits since the last tag, bumps package.json, updates
+      # CHANGELOG.md, tags, and creates the GitHub release. Its successCmd
+      # writes the new version to this step's outputs only when a release was
+      # actually published, which gates the artifact jobs below.
+      - name: Publish release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec semantic-release
+
+  artifacts:
+    name: Build release artifacts
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build standalone server
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_APP_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Package tarball
+        id: tarball
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          STAGE=.next/standalone
+          cp -r .next/static "$STAGE/.next/static"
+          cp -r public "$STAGE/public"
+          NAME="datalook-studio-${VERSION}"
+          mkdir -p dist
+          tar -C "$STAGE" -czf "dist/${NAME}.tar.gz" .
+          (cd dist && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          echo "file=dist/${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "checksum=dist/${NAME}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Attach tarball to GitHub release
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${VERSION}" \
+            "${{ steps.tarball.outputs.file }}" \
+            "${{ steps.tarball.outputs.checksum }}" \
+            --clobber
+
+      - name: Work out image tags
+        id: tags
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAGS="ghcr.io/${{ github.repository }}:${VERSION}"
+          # Only stable releases move :latest; pre-releases (X.Y.Z-dev.N) don't.
+          if [[ "$VERSION" != *-* ]]; then
+            TAGS="${TAGS}"$'\n'"ghcr.io/${{ github.repository }}:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          provenance: false
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.release.outputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

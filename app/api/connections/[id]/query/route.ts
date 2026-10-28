@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { guardQuery } from '@/lib/db/access'
 import { DBError } from '@/lib/db/types'
 
 export async function POST(
@@ -9,15 +10,17 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const config = loadServerConnection(id)
-    if (!config) {
-      return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
-    }
-
     const body = await request.json()
     const query = body.query ?? body.sql ?? body.statement
     if (!query || typeof query !== 'string') {
       return NextResponse.json({ error: 'Missing "query" field' }, { status: 400 })
+    }
+
+    const denied = await guardQuery(request, id, query)
+    if (denied) return denied
+    const config = await loadServerConnection(id)
+    if (!config) {
+      return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
     const adapter = await getConnectedAdapter(config)

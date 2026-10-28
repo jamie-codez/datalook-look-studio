@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { toast } from 'sonner'
 import { useWorkspace } from '@/components/providers/workspace-provider'
 import { driverLabel } from '@/lib/drivers'
 import type { Connection, SchemaMeta, TableMeta } from '@/lib/types'
@@ -26,6 +27,8 @@ export interface DatasourceSelection {
   connectionId: string
   schemaName?: string
   tableId?: string
+  /** bare table name, for opening the table without looking it up in the tree */
+  tableName?: string
 }
 
 interface DatasourcePickerDialogProps {
@@ -45,7 +48,7 @@ export function DatasourcePickerDialog({
   description = 'Select a connection, schema, and table to continue.',
   showTable = true,
 }: DatasourcePickerDialogProps) {
-  const { connections } = useWorkspace()
+  const { connections, loadSchemaTree } = useWorkspace()
   const userConnections = connections.filter((c) => !c.isSystem)
 
   const [connectionId, setConnectionId] = React.useState<string>('')
@@ -68,9 +71,27 @@ export function DatasourcePickerDialog({
   const selectedSchema = schemas.find((s) => s.name === schemaName)
   const tables: TableMeta[] = selectedSchema?.tables ?? []
 
+  function pickConnection(id: string) {
+    setConnectionId(id)
+    setSchemaName('')
+    setTableId('')
+    // Tables come from the server, so load them the first time a connection is picked.
+    const conn = userConnections.find((c) => c.id === id)
+    if (conn && conn.schemas.length === 0) {
+      loadSchemaTree(conn).catch((err: Error) => {
+        toast.error(`Couldn't load ${conn.name}`, { description: err.message })
+      })
+    }
+  }
+
   function handleConfirm() {
     if (!connectionId) return
-    onSelect({ connectionId, schemaName: schemaName || undefined, tableId: tableId || undefined })
+    onSelect({
+      connectionId,
+      schemaName: schemaName || undefined,
+      tableId: tableId || undefined,
+      tableName: tables.find((t) => t.id === tableId)?.name,
+    })
     onOpenChange(false)
   }
 
@@ -95,7 +116,7 @@ export function DatasourcePickerDialog({
             <>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Connection</label>
-                <Select value={connectionId} onValueChange={(v) => { setConnectionId(v ?? ''); setSchemaName(''); setTableId('') }}>
+                <Select value={connectionId} onValueChange={(v) => pickConnection(v ?? '')}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a connection">
                       {(value) => {

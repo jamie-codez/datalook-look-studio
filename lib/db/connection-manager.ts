@@ -53,6 +53,17 @@ export async function evictAdapter(connId: string): Promise<void> {
   cache.delete(connId)
 }
 
+/**
+ * Evict the adapter for a connection and every database-scoped adapter made
+ * from it (ids of the form "<connId>@<database>"). Use after the connection's
+ * settings or credentials change.
+ */
+export async function evictConnectionAdapters(connId: string): Promise<void> {
+  const prefix = `${connId}@`
+  const ids = Array.from(cache.keys()).filter((id) => id === connId || id.startsWith(prefix))
+  for (const id of ids) await evictAdapter(id)
+}
+
 /** Evict all adapters that have been idle for longer than IDLE_TIMEOUT_MS. */
 export async function sweepIdleConnections(): Promise<void> {
   const now = Date.now()

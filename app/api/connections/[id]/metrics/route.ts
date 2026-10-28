@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { guardConnection } from '@/lib/db/access'
 import { DBError } from '@/lib/db/types'
 import { SYSTEM_CONNECTION_ID } from '@/lib/system-store'
 import { getSessionFromRequest } from '@/lib/auth/session'
@@ -12,7 +13,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const config = loadServerConnection(id)
+    const denied = await guardConnection(request, id, 'viewer')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }

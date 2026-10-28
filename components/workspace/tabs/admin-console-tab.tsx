@@ -350,8 +350,13 @@ function ConnectionsSection() {
 
   function handleRemove(id: string, name: string) {
     removeConnection(id)
-    logAudit("Remove connection", name, "allowed")
-    toast.success(`Removed "${name}"`)
+      .then(() => {
+        logAudit("Remove connection", name, "allowed")
+        toast.success(`Removed "${name}"`)
+      })
+      .catch((err: Error) => {
+        toast.error(`Couldn't remove "${name}"`, { description: err.message })
+      })
   }
 
   if (connections.length === 0) {

@@ -657,13 +657,3 @@ export function generateRows(table: TableMeta, limit = 200): Record<string, unkn
   }
   return rows
 }
-
-export function findTable(connections: Connection[], tableId: string): TableMeta | undefined {
-  for (const conn of connections) {
-    for (const schema of conn.schemas) {
-      const t = schema.tables.find((t) => t.id === tableId)
-      if (t) return t
-    }
-  }
-  return undefined
-}
