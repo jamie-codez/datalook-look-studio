@@ -1,3 +1,10 @@
+# [1.0.0-dev.2](https://github.com/jamie-codez/datalook-look-studio/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ci:** set up buildx before cache-backed image build ([cd07439](https://github.com/jamie-codez/datalook-look-studio/commit/cd07439e8a6122acbbc36095a53695d2aff1317b))
+
 # 1.0.0-dev.1 (2026-10-28)
 
 
