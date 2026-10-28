@@ -68,8 +68,12 @@ Releases are automatic. Every push to `dev` or `prod` runs
 
 When a release is published, the release workflow (`.github/workflows/release.yml`)
 tags `vX.Y.Z`, creates the GitHub release with generated notes, attaches a standalone server tarball with its SHA-256 checksum, and
-pushes the container image to `ghcr.io/<owner>/<repo>`. Stable releases also
-move `latest`; pre-releases don't.
+pushes the container image, named per channel so the two are easy to tell apart:
+
+- `ghcr.io/<owner>/<repo>-dev:v<version>` for pre-releases from `dev`
+- `ghcr.io/<owner>/<repo>-prod:v<version>` for stable releases from `prod`
+
+Only stable releases move `latest` (on the `-prod` image).
 Do not create version tags or releases by hand.
 
 ## Code style

@@ -109,12 +109,21 @@ jobs:
         id: tags
         env:
           VERSION: ${{ needs.release.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          TAGS="ghcr.io/${{ github.repository }}:${VERSION}"
-          # Only stable releases move :latest; pre-releases (X.Y.Z-dev.N) don't.
-          if [[ "$VERSION" != *-* ]]; then
-            TAGS="${TAGS}"$'\n'"ghcr.io/${{ github.repository }}:latest"
+          # Images are named per channel so dev and prod builds are easy to tell apart:
+          #   ghcr.io/<owner>/datalook-look-studio-dev:<version>   (from dev)
+          #   ghcr.io/<owner>/datalook-look-studio-prod:<version>  (from prod)
+          case "$BRANCH" in
+            dev) IMAGE="ghcr.io/${{ github.repository }}-dev" ;;
+            prod) IMAGE="ghcr.io/${{ github.repository }}-prod" ;;
+            *) echo "no image channel for branch $BRANCH"; exit 1 ;;
+          esac
+          TAGS="${IMAGE}:v${VERSION}"
+          # Only stable prod releases move :latest; pre-releases (X.Y.Z-dev.N) don't.
+          if [[ "$BRANCH" == "prod" && "$VERSION" != *-* ]]; then
+            TAGS="${TAGS}"$'\n'"${IMAGE}:latest"
           fi
           {
             echo "tags<<EOF"
