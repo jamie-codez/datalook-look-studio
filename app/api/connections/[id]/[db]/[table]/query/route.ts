@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnectedAdapter } from '@/lib/db/adapter-factory'
+import { forDatabase, getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { guardQuery } from '@/lib/db/access'
 import { DBError } from '@/lib/db/types'
 
 export async function POST(
@@ -8,14 +9,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string; db: string; table: string }> },
 ) {
   try {
-    const { id, db: _db, table: _table } = await params
-    const config = loadServerConnection(id)
+    const { id, db, table: _table } = await params
+    const body = await request.json()
+    const denied = await guardQuery(request, id, body.query ?? body.sql ?? body)
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const body = await request.json()
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+
+    const adapter = await getConnectedAdapter(target)
     const result = await adapter.query(body.query ?? body.sql ?? body)
 
     return NextResponse.json(result)

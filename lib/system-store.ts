@@ -239,16 +239,19 @@ export function buildSystemConnection(
         id: schemaId,
         name: schemaName,
         procedures: [],
-        tables: datasets(driver).map((d) => ({
-          id: `${schemaId}.${d.name}`,
-          name: d.name,
-          kind: d.kind,
-          // Real backend: unknown until the table is opened (the rows API
-          // runs a live COUNT(*)) — showing a fabricated number here would
-          // misrepresent real data, so leave it at 0 rather than guess.
-          rowCount: isRealBackend || isProduction ? 0 : d.rowCount,
-          columns: d.columns,
-        })),
+        // Real backend: the tree is read from the database on demand (see
+        // loadSchemaTree), so there is nothing to fabricate here.
+        tables: isRealBackend
+          ? []
+          : datasets(driver).map((d) => ({
+              id: `${schemaId}.${d.name}`,
+              name: d.name,
+              kind: d.kind,
+              // Production without a real backend has no data behind these
+              // tables, so don't invent row counts for them.
+              rowCount: isProduction ? 0 : d.rowCount,
+              columns: d.columns,
+            })),
       },
     ],
   }

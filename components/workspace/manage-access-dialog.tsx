@@ -36,7 +36,9 @@ export function ManageAccessDialog({
   }, [open, connection.grants])
 
   function handleSave() {
-    updateConnectionGrants(connection.id, grants)
+    updateConnectionGrants(connection.id, grants).catch((err: Error) => {
+      toast.error('Access not updated', { description: err.message })
+    })
     logAudit('Update access', connection.name, 'allowed')
     toast.success('Access updated', {
       description: `${grants.length} ${grants.length === 1 ? 'member has' : 'members have'} access to "${connection.name}"`,

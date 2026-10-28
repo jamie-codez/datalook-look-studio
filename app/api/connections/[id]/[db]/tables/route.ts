@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnectedAdapter } from '@/lib/db/adapter-factory'
+import { forDatabase, getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { guardConnection } from '@/lib/db/access'
 import { DBError } from '@/lib/db/types'
 
 export async function GET(
@@ -10,12 +11,16 @@ export async function GET(
   try {
     const { id, db } = await params
     const schema = request.nextUrl.searchParams.get('schema') || undefined
-    const config = loadServerConnection(id)
+    const denied = await guardConnection(request, id, 'viewer')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+
+    const adapter = await getConnectedAdapter(target)
     const tables = await adapter.listTablesOrCollections(decodeURIComponent(db), schema)
 
     return NextResponse.json({ tables })

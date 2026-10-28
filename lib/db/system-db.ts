@@ -7,12 +7,10 @@ import type { User, CustomRole, AuditLogItem, AuditStatus, Role, Permission, Que
  * roles, the audit log, and query history. Used only server-side (Route
  * Handlers) when NEXT_PUBLIC_SYSTEM_BACKEND=postgres (see lib/env.ts).
  *
- * The connections table created by init-db.ts is still schema-only —
- * connection credentials continue to live in lib/db/server-store.ts, and
- * mapping this app's string connection ids onto that table's bigserial PK
- * (plus safely relocating encrypted credential storage off the server
- * filesystem) is a bigger change than this pass takes on. See
- * docs/architecture.md "Known gaps".
+ * Connection records live in datalook.connections. The app's string ids are
+ * stored in `external_id`; the bigserial `id` stays the grants foreign key.
+ * Credentials are encrypted (lib/db/server-crypto.ts) into `config_enc`, so
+ * no plaintext password is ever written to the database.
  */
 
 const PGHOST = process.env.PGHOST || 'localhost'
@@ -130,6 +128,17 @@ export async function ensureSchema(client: Pool | PoolClient | Client): Promise<
       UNIQUE(connection_id, user_id)
     )
   `)
+
+  // Connections were schema-only until now. These additive migrations let a
+  // database provisioned by an older init-db.ts pick up the app's string ids
+  // and encrypted config without being recreated.
+  await client.query(`ALTER TABLE datalook.connections ADD COLUMN IF NOT EXISTS external_id VARCHAR(64)`)
+  await client.query(`ALTER TABLE datalook.connections ADD COLUMN IF NOT EXISTS config_enc TEXT`)
+  await client.query(`ALTER TABLE datalook.connections ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFAULT '{}'::jsonb`)
+  await client.query(`ALTER TABLE datalook.connections ALTER COLUMN host DROP NOT NULL`)
+  await client.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS connections_external_id_key ON datalook.connections(external_id)`,
+  )
 }
 
 /** Ensure the schema exists, memoized for the process lifetime. */
@@ -424,4 +433,182 @@ export async function appendQueryHistory(item: {
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [item.statementType, item.sql, item.durationMs, item.status, item.connectionName, item.rowCount],
   )
+}
+
+export type ConnectionAccessRole = 'viewer' | 'editor' | 'manager' | 'admin'
+
+export interface ConnectionRecord {
+  /** the app's connection id (e.g. "conn-1730000000000-0") */
+  id: string
+  name: string
+  driver: string
+  host: string
+  port: number
+  database: string
+  username: string
+  scope: 'shared' | 'personal'
+  ownerId: string
+  readOnly: boolean
+  topology: string | null
+  /** non-secret extras (tls, filePath, region, replicaHosts, …) */
+  options: Record<string, unknown>
+  /** AES-GCM blob holding host/port/user/password/connectionString — see server-crypto */
+  configEnc: string | null
+  grants: { userId: string; role: ConnectionAccessRole }[]
+}
+
+interface ConnectionRow {
+  external_id: string
+  name: string
+  driver: string
+  host: string | null
+  port: number | null
+  database: string | null
+  username: string | null
+  scope: string
+  owner_id: string | null
+  read_only: boolean
+  topology: string | null
+  config_enc: string | null
+  options: Record<string, unknown> | null
+}
+
+interface GrantRow {
+  external_id: string
+  user_id: string
+  role: ConnectionAccessRole
+}
+
+function toConnectionRecord(row: ConnectionRow, grants: GrantRow[]): ConnectionRecord {
+  return {
+    id: row.external_id,
+    name: row.name,
+    driver: row.driver,
+    host: row.host ?? '',
+    port: row.port ?? 0,
+    database: row.database ?? '',
+    username: row.username ?? '',
+    scope: row.scope === 'shared' ? 'shared' : 'personal',
+    ownerId: row.owner_id ?? '',
+    readOnly: row.read_only,
+    topology: row.topology,
+    options: row.options ?? {},
+    configEnc: row.config_enc,
+    grants: grants.map((g) => ({ userId: g.user_id, role: g.role })),
+  }
+}
+
+const CONNECTION_COLUMNS =
+  'external_id, name, driver, host, port, database, username, scope, owner_id, read_only, topology, config_enc, options'
+
+async function grantsFor(p: Pool, externalId?: string): Promise<GrantRow[]> {
+  const res = await p.query<GrantRow>(
+    `SELECT c.external_id, g.user_id::text AS user_id, g.role
+       FROM datalook.connection_grants g
+       JOIN datalook.connections c ON c.id = g.connection_id
+      WHERE c.external_id IS NOT NULL AND ($1::text IS NULL OR c.external_id = $1)`,
+    [externalId ?? null],
+  )
+  return res.rows
+}
+
+export async function listConnectionRecords(): Promise<ConnectionRecord[]> {
+  const p = await requirePool()
+  const [rows, grants] = await Promise.all([
+    p.query<ConnectionRow>(
+      `SELECT ${CONNECTION_COLUMNS} FROM datalook.connections WHERE external_id IS NOT NULL ORDER BY id`,
+    ),
+    grantsFor(p),
+  ])
+  return rows.rows.map((row) =>
+    toConnectionRecord(row, grants.filter((g) => g.external_id === row.external_id)),
+  )
+}
+
+export async function getConnectionRecord(id: string): Promise<ConnectionRecord | null> {
+  const p = await requirePool()
+  const res = await p.query<ConnectionRow>(
+    `SELECT ${CONNECTION_COLUMNS} FROM datalook.connections WHERE external_id = $1`,
+    [id],
+  )
+  const row = res.rows[0]
+  if (!row) return null
+  return toConnectionRecord(row, await grantsFor(p, id))
+}
+
+/** Insert or update a connection record. Grants are managed separately. */
+export async function upsertConnectionRecord(
+  rec: Omit<ConnectionRecord, 'grants'>,
+): Promise<void> {
+  const p = await requirePool()
+  await p.query(
+    `INSERT INTO datalook.connections
+       (external_id, name, driver, host, port, database, username, scope, owner_id, read_only, topology, config_enc, options)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (external_id) DO UPDATE SET
+       name = EXCLUDED.name,
+       driver = EXCLUDED.driver,
+       host = EXCLUDED.host,
+       port = EXCLUDED.port,
+       database = EXCLUDED.database,
+       username = EXCLUDED.username,
+       scope = EXCLUDED.scope,
+       read_only = EXCLUDED.read_only,
+       topology = EXCLUDED.topology,
+       config_enc = EXCLUDED.config_enc,
+       options = EXCLUDED.options,
+       updated_at = NOW()`,
+    [
+      rec.id,
+      rec.name,
+      rec.driver,
+      rec.host,
+      rec.port,
+      rec.database,
+      rec.username,
+      rec.scope,
+      rec.ownerId,
+      rec.readOnly,
+      rec.topology,
+      rec.configEnc,
+      JSON.stringify(rec.options),
+    ],
+  )
+}
+
+export async function deleteConnectionRecord(id: string): Promise<void> {
+  const p = await requirePool()
+  await p.query('DELETE FROM datalook.connections WHERE external_id = $1', [id])
+}
+
+/** Replace the full grant list for a connection in one transaction. */
+export async function replaceConnectionGrants(
+  id: string,
+  grants: { userId: string; role: ConnectionAccessRole }[],
+): Promise<void> {
+  const p = await requirePool()
+  const client = await p.connect()
+  try {
+    await client.query('BEGIN')
+    const conn = await client.query<{ id: string }>(
+      'SELECT id::text FROM datalook.connections WHERE external_id = $1',
+      [id],
+    )
+    if (!conn.rows[0]) throw new Error(`Connection ${id} not found`)
+    const connectionPk = conn.rows[0].id
+    await client.query('DELETE FROM datalook.connection_grants WHERE connection_id = $1::bigint', [connectionPk])
+    for (const g of grants) {
+      await client.query(
+        `INSERT INTO datalook.connection_grants (connection_id, user_id, role)
+         VALUES ($1::bigint, $2::bigint, $3)`,
+        [connectionPk, g.userId, g.role],
+      )
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
 }

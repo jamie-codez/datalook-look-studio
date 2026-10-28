@@ -255,7 +255,7 @@ export function NewConnectionDialog({
     }
     try {
       if (isEditing && editingConnection) {
-        updateConnection(editingConnection.id, connInput)
+        await updateConnection(editingConnection.id, connInput)
         logAudit(`Update ${effectiveScope} connection`, name.trim(), 'allowed')
         toast.success(`Connection "${name.trim()}" updated`)
       } else {

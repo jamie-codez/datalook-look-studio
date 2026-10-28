@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { CONNECTIONS, findTable } from '@/lib/mock-data'
+import { CONNECTIONS } from '@/lib/mock-data'
 import type {
   AuditLogItem,
   AuditStatus,
@@ -9,7 +9,11 @@ import type {
   ConnectionGrant,
   ConnectionRole,
   QueryHistoryItem,
+  ReplicaHost,
   Role,
+  SchemaMeta,
+  TableKind,
+  TableMeta,
   Tab,
 } from '@/lib/types'
 import { effectiveConnectionRole } from '@/lib/rbac'
@@ -27,6 +31,16 @@ import {
   deleteConnection as deletePersistedConnection,
 } from '@/lib/persistence'
 import { buildSystemConnection } from '@/lib/system-store'
+import {
+  createConnection,
+  deleteConnectionRemote,
+  fetchConnections,
+  fetchSchemas,
+  fetchTables,
+  replaceConnectionGrantsRemote,
+  updateConnectionRemote,
+  type RemoteConnection,
+} from '@/lib/db/api-client'
 import { SystemStoreSetup } from '@/components/workspace/system-store-setup'
 import { LoaderCircle } from 'lucide-react'
 import type { DriverId } from '@/lib/types'
@@ -35,6 +49,108 @@ import { isProduction, SKIP_ONBOARDING, DEFAULT_DB_DRIVER, SYSTEM_BACKEND_IS_POS
 
 let idCounter = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${idCounter++}`
+
+/**
+ * Demo connections and their fixture data only exist in the browser-demo
+ * build. Real deployments never seed them, so every table a user sees comes
+ * from a live adapter.
+ */
+const SEED_DEMO_DATA = !SYSTEM_BACKEND_IS_POSTGRES && !isProduction
+
+/** True when this connection's metadata and queries go to a real server. */
+function isLive(connection: Connection): boolean {
+  if (connection.isSystem) return SYSTEM_BACKEND_IS_POSTGRES
+  return !SEED_DEMO_DATA || connection.encrypted === true
+}
+
+function tableKindFor(driver: DriverId): TableKind {
+  const { category } = driverMeta(driver)
+  if (category === 'document') return 'collection'
+  if (category === 'keyvalue' || category === 'widecolumn') return 'keyspace'
+  return 'table'
+}
+
+/** Tree node for a table the server reported. Columns and row counts load on demand. */
+function liveTable(connection: Connection, schemaName: string, tableName: string): TableMeta {
+  return {
+    id: `${connection.id}.${schemaName}.${tableName}`,
+    name: tableName,
+    kind: tableKindFor(connection.driver),
+    columns: [],
+    rowCount: 0,
+  }
+}
+
+function remoteToConnection(r: RemoteConnection): Connection {
+  const driver = r.driver as DriverId
+  return {
+    id: r.id,
+    name: r.name,
+    driver,
+    host: r.host,
+    port: r.port,
+    database: r.database,
+    username: r.username,
+    password: '',
+    status: 'disconnected',
+    readOnly: r.readOnly,
+    schemas: [],
+    accent: driverAccent(driver),
+    version: '',
+    uptimeHours: 0,
+    scope: r.scope,
+    ownerId: r.ownerId,
+    grants: r.grants,
+    encrypted: true,
+    topology: r.topology as Connection['topology'],
+    replicaHosts: (r.options.replicaHosts as ReplicaHost[] | undefined) ?? undefined,
+  }
+}
+
+/** Fields the server needs to test and save a connection. */
+function connectionPayload(id: string, input: NewConnectionInput, ownerId: string) {
+  return {
+    id,
+    driver: input.driver,
+    name: input.name,
+    host: input.host,
+    port: input.port,
+    database: input.database,
+    username: input.username,
+    password: input.password,
+    readOnly: input.readOnly,
+    scope: input.scope,
+    ownerId,
+    topology: input.topology,
+    replicaHosts: input.replicaHosts,
+  }
+}
+
+function connectionFromInput(id: string, input: NewConnectionInput, ownerId: string): Connection {
+  return {
+    id,
+    name: input.name,
+    driver: input.driver,
+    host: input.host,
+    port: input.port,
+    database: input.database,
+    username: input.username,
+    password: input.password,
+    status: 'disconnected',
+    readOnly: input.readOnly,
+    accent: driverAccent(input.driver),
+    version: '',
+    uptimeHours: 0,
+    scope: input.scope,
+    ownerId,
+    grants: input.scope === 'shared' ? input.grants : [],
+    encrypted: true,
+    topology: input.topology,
+    replicaHosts: input.replicaHosts,
+    // Filled in by loadSchemaTree once the server has listed the schemas.
+    schemas: [],
+  }
+}
 
 interface NewConnectionInput {
   name: string
@@ -70,13 +186,15 @@ interface WorkspaceContextValue {
   updateTabSql: (tabId: string, sql: string) => void
 
   addConnection: (input: NewConnectionInput) => void
-  updateConnection: (id: string, input: NewConnectionInput) => void
-  removeConnection: (connectionId: string) => void
+  updateConnection: (id: string, input: NewConnectionInput) => Promise<void>
+  removeConnection: (connectionId: string) => Promise<void>
   /** replace the grant list for a shared connection */
   updateConnectionGrants: (
     connectionId: string,
     grants: ConnectionGrant[],
-  ) => void
+  ) => Promise<void>
+  /** load databases' schemas and tables for a live connection into its tree */
+  loadSchemaTree: (connection: Connection) => Promise<SchemaMeta[]>
   /** the current user's effective role on a connection, or null if none */
   connectionRoleFor: (connection: Connection) => ConnectionRole | null
 
@@ -94,10 +212,15 @@ const WorkspaceContext = React.createContext<WorkspaceContextValue | null>(null)
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { currentUser } = useAuth()
   // Full catalogue; each user only sees the subset they have access to.
-  // Production starts empty — connections come only from the admin / persistence.
+  // Only the browser demo starts with fixture connections.
   const [allConnections, setAllConnections] = React.useState<Connection[]>(
-    isProduction ? [] : CONNECTIONS,
+    SEED_DEMO_DATA ? CONNECTIONS : [],
   )
+  // Mirror for handlers that need the current list without re-subscribing.
+  const allConnectionsRef = React.useRef<Connection[]>(allConnections)
+  React.useEffect(() => {
+    allConnectionsRef.current = allConnections
+  }, [allConnections])
   // First-run + persistence lifecycle.
   const [hydrated, setHydrated] = React.useState(false)
   const [config, setConfig] = React.useState<AppConfig | null>(null)
@@ -109,17 +232,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [cfg, persisted, persistedAudit, persistedHistory] = await Promise.all([
+      const [cfg, persisted, persistedAudit, persistedHistory, remote] = await Promise.all([
         loadAppConfig(),
-        loadConnections(),
+        SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadConnections(),
         SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadAuditLog(),
         SYSTEM_BACKEND_IS_POSTGRES ? Promise.resolve([]) : loadQueryHistory(),
+        // Real backend: the server is the only source of connections, so one
+        // browser's IndexedDB can't drift from what the team sees.
+        SYSTEM_BACKEND_IS_POSTGRES ? fetchConnections().catch(() => []) : Promise.resolve([]),
       ])
       if (cancelled) return
 
       const merged = new Map<string, Connection>()
-      if (!isProduction) for (const c of CONNECTIONS) merged.set(c.id, c)
+      if (SEED_DEMO_DATA) for (const c of CONNECTIONS) merged.set(c.id, c)
       for (const c of persisted) merged.set(c.id, c)
+      for (const r of remote) merged.set(r.id, remoteToConnection(r))
 
       // With SKIP_ONBOARDING, the setup dialog never runs — auto-complete it
       // with the deployment's configured driver so the system store actually
@@ -290,54 +417,25 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const addConnection = React.useCallback(
     async (input: NewConnectionInput) => {
       const id = nextId('conn')
-      const connection: Connection = {
-        id,
-        name: input.name,
-        driver: input.driver,
-        host: input.host,
-        port: input.port,
-        database: input.database,
-        username: input.username,
-        password: input.password,
-        status: 'disconnected',
-        readOnly: input.readOnly,
-        accent: driverAccent(input.driver),
-        version: '',
-        uptimeHours: 0,
-        scope: input.scope,
-        ownerId: currentUser.id,
-        grants: input.scope === 'shared' ? input.grants : [],
-        encrypted: true,
-        topology: input.topology,
-        replicaHosts: input.replicaHosts,
-        schemas: [
-          {
-            id: `${id}.${driverMeta(input.driver).vocab.container}`,
-            name: driverMeta(input.driver).vocab.container,
-            procedures: [],
-            tables: [],
-          },
-        ],
+
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        // The server tests the connection before saving it. A failure throws
+        // back to the dialog, so nothing half-created shows up in the tree.
+        await createConnection(connectionPayload(id, input, currentUser.id))
+        setAllConnections((prev) => [
+          ...prev,
+          { ...connectionFromInput(id, input, currentUser.id), status: 'connected' },
+        ])
+        return
       }
+
+      const connection = connectionFromInput(id, input, currentUser.id)
       setAllConnections((prev) => [...prev, connection])
       void saveConnection(connection)
 
-      // Also save server-side for Route Handler access + test the connection
+      // Also save server-side for Route Handler access + test the connection.
       try {
-        const { createConnection } = await import('@/lib/db/api-client')
-        const result = await createConnection({
-          id,
-          driver: input.driver,
-          name: input.name,
-          host: input.host,
-          port: input.port,
-          database: input.database,
-          username: input.username,
-          password: input.password,
-          readOnly: input.readOnly,
-          scope: input.scope,
-          ownerId: currentUser.id,
-        })
+        const result = await createConnection(connectionPayload(id, input, currentUser.id))
         if (result.status === 'connected') {
           setAllConnections((prev) =>
             prev.map((c) => (c.id === id ? { ...c, status: 'connected' } : c)),
@@ -351,7 +449,26 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   )
 
   const updateConnection = React.useCallback(
-    (id: string, input: NewConnectionInput) => {
+    async (id: string, input: NewConnectionInput) => {
+      const payload = {
+        name: input.name,
+        driver: input.driver,
+        host: input.host,
+        port: input.port,
+        database: input.database,
+        username: input.username,
+        password: input.password,
+        readOnly: input.readOnly,
+        scope: input.scope,
+        topology: input.topology,
+        replicaHosts: input.replicaHosts,
+      }
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        await updateConnectionRemote(id, payload)
+      } else {
+        // Browser demo: keep the server's copy in step, best effort.
+        void updateConnectionRemote(id, payload).catch(() => {})
+      }
       setAllConnections((prev) =>
         prev.map((c) => {
           if (c.id !== id) return c
@@ -363,15 +480,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             port: input.port,
             database: input.database,
             username: input.username,
-            password: input.password,
+            // Real backend: the server never returns a password. An empty field
+            // here means "keep the stored one", so don't blank the local copy.
+            password: input.password || c.password,
             readOnly: input.readOnly,
             scope: input.scope,
             grants: input.scope === 'shared' ? input.grants : [],
             topology: input.topology,
             replicaHosts: input.replicaHosts,
             accent: driverAccent(input.driver),
+            // The shape changed (possibly a new driver), so the old tree is stale.
+            schemas: c.driver === input.driver && c.database === input.database ? c.schemas : [],
           }
-          void saveConnection(updated)
+          if (!SYSTEM_BACKEND_IS_POSTGRES) void saveConnection(updated)
           return updated
         }),
       )
@@ -379,31 +500,92 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [],
   )
 
-  const removeConnection = React.useCallback((connectionId: string) => {
-    setAllConnections((prev) => {
-      const target = prev.find((c) => c.id === connectionId)
-      // The pinned system store cannot be removed.
-      if (target?.isSystem) return prev
-      return prev.filter((c) => c.id !== connectionId)
-    })
+  const removeConnection = React.useCallback(async (connectionId: string) => {
+    const target = allConnectionsRef.current.find((c) => c.id === connectionId)
+    // The pinned system store cannot be removed.
+    if (target?.isSystem) return
+    if (SYSTEM_BACKEND_IS_POSTGRES) {
+      await deleteConnectionRemote(connectionId)
+    } else {
+      void deleteConnectionRemote(connectionId).catch(() => {})
+    }
+    setAllConnections((prev) => prev.filter((c) => c.id !== connectionId))
     setTabs((prev) => prev.filter((t) => t.connectionId !== connectionId))
     void deletePersistedConnection(connectionId)
   }, [])
 
   const updateConnectionGrants = React.useCallback(
-    (connectionId: string, grants: ConnectionGrant[]) => {
+    async (connectionId: string, grants: ConnectionGrant[]) => {
+      const target = allConnectionsRef.current.find((c) => c.id === connectionId)
+      if (!target || target.scope !== 'shared') return
+      if (SYSTEM_BACKEND_IS_POSTGRES) {
+        await replaceConnectionGrantsRemote(connectionId, grants)
+      } else if (!target.isSystem) {
+        void replaceConnectionGrantsRemote(connectionId, grants).catch(() => {})
+      }
       setAllConnections((prev) =>
         prev.map((c) => {
           if (c.id !== connectionId || c.scope !== 'shared') return c
           const updated = { ...c, grants }
-          // Persist grant changes for user-created (encrypted) connections.
-          if (updated.encrypted && !updated.isSystem) void saveConnection(updated)
+          // Browser demo keeps grant changes in IndexedDB for user-created connections.
+          if (!SYSTEM_BACKEND_IS_POSTGRES && updated.encrypted && !updated.isSystem) {
+            void saveConnection(updated)
+          }
           return updated
         }),
       )
     },
     [],
   )
+
+  /**
+   * Fill a live connection's tree with the schemas and tables the server
+   * reports for its configured database. Columns and row counts are fetched
+   * when a table is opened, not here, so the tree stays cheap on big servers.
+   */
+  const loadSchemaTree = React.useCallback(async (connection: Connection): Promise<SchemaMeta[]> => {
+    if (!isLive(connection)) return connection.schemas
+    const category = driverMeta(connection.driver).category
+    const database = connection.database
+    try {
+      let schemas: SchemaMeta[]
+      if (category === 'sql') {
+        const names = await fetchSchemas(connection.id, database)
+        schemas = await Promise.all(
+          names.map(async (schemaName) => {
+            const tables = await fetchTables(connection.id, database, schemaName)
+            return {
+              id: `${connection.id}.${schemaName}`,
+              name: schemaName,
+              procedures: [],
+              tables: tables.map((t) => liveTable(connection, schemaName, t)),
+            }
+          }),
+        )
+      } else {
+        // Document and key-value stores have no schema level; show their
+        // collections or keyspaces under the database itself.
+        const tables = await fetchTables(connection.id, database)
+        schemas = [
+          {
+            id: `${connection.id}.${database}`,
+            name: database,
+            procedures: [],
+            tables: tables.map((t) => liveTable(connection, database, t)),
+          },
+        ]
+      }
+      setAllConnections((prev) =>
+        prev.map((c) => (c.id === connection.id ? { ...c, schemas, status: 'connected' } : c)),
+      )
+      return schemas
+    } catch (err) {
+      setAllConnections((prev) =>
+        prev.map((c) => (c.id === connection.id ? { ...c, status: 'error' } : c)),
+      )
+      throw err
+    }
+  }, [])
 
   // Only surface connections the current user can actually access.
   const connections = React.useMemo(
@@ -454,6 +636,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       updateConnection,
       removeConnection,
       updateConnectionGrants,
+      loadSchemaTree,
       connectionRoleFor,
       recordQuery,
       logAudit,
@@ -473,6 +656,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       updateConnection,
       removeConnection,
       updateConnectionGrants,
+      loadSchemaTree,
       connectionRoleFor,
       recordQuery,
       logAudit,
@@ -509,4 +693,3 @@ export function useWorkspace() {
   return ctx
 }
 
-export { findTable }

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { DatabaseIcon, FileCodeIcon, TableIcon, ServerIcon } from "lucide-react"
 
 function WelcomePane() {
-  const { connections, openTab } = useWorkspace()
+  const { connections, openTab, loadSchemaTree } = useWorkspace()
   const { currentUser } = useAuth()
   const first = connections[0]
 
@@ -54,19 +54,28 @@ function WelcomePane() {
             variant="outline"
             className="h-auto flex-col gap-2 py-4"
             disabled={!first}
-            onClick={() => {
-              const table = first?.schemas[0]?.tables[0]
-              if (first && table)
-                openTab(
-                  {
-                    kind: "data",
-                    title: table.name,
-                    connectionId: first.id,
-                    schemaName: first.schemas[0].name,
-                    tableId: table.id,
-                  },
-                  { focusExisting: true },
-                )
+            onClick={async () => {
+              if (!first) return
+              // Live connections fetch their tree on first use.
+              const schemas =
+                first.schemas.length > 0
+                  ? first.schemas
+                  : await loadSchemaTree(first).catch(() => [])
+              const schema = schemas[0]
+              const table = schema?.tables[0]
+              if (!schema || !table) return
+              openTab(
+                {
+                  kind: "data",
+                  title: table.name,
+                  connectionId: first.id,
+                  databaseName: first.database,
+                  schemaName: schema.name,
+                  tableName: table.name,
+                  tableId: table.id,
+                },
+                { focusExisting: true },
+              )
             }}
           >
             <TableIcon className="size-5 text-primary" aria-hidden />
