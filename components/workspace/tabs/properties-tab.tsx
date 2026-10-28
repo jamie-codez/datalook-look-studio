@@ -1,11 +1,13 @@
 "use client"
 
-import type { Tab } from "@/lib/types"
-import { useWorkspace, findTable } from "@/components/providers/workspace-provider"
+import * as React from "react"
+import type { Column, Tab } from "@/lib/types"
+import { useWorkspace } from "@/components/providers/workspace-provider"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { KeyRoundIcon, Link2Icon, TableIcon, HashIcon } from "lucide-react"
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { fetchRows, fetchStructure, structureToColumns } from "@/lib/db/api-client"
+import { KeyRoundIcon, Link2Icon, TableIcon, HashIcon, Loader2Icon } from "lucide-react"
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -16,12 +18,49 @@ function StatCard({ label, value }: { label: string; value: string }) {
   )
 }
 
+interface LoadedProperties {
+  columns: Column[]
+  rowCount: number | null
+}
+
 export function PropertiesTab({ tab }: { tab: Tab }) {
   const { connections } = useWorkspace()
-  const table = tab.tableId ? findTable(connections, tab.tableId) : undefined
   const connection = connections.find((c) => c.id === tab.connectionId)
+  const database = tab.databaseName || connection?.database || ""
+  const tableName = tab.tableName || ""
 
-  if (!table) {
+  const [loaded, setLoaded] = React.useState<LoadedProperties | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Read the table's structure and row count from the database itself. The
+  // navigator's tree is only a cache and may not be loaded yet.
+  React.useEffect(() => {
+    if (!connection || !tableName) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    Promise.all([
+      fetchStructure(connection.id, database, tableName, tab.schemaName).then(structureToColumns),
+      fetchRows(connection.id, database, tableName, { pageSize: 1, schema: tab.schemaName })
+        .then((r) => r.total ?? null)
+        .catch(() => null),
+    ])
+      .then(([columns, rowCount]) => {
+        if (!cancelled) setLoaded({ columns, rowCount })
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [connection?.id, database, tableName, tab.schemaName])
+
+  if (!connection || !tableName) {
     return (
       <Empty className="h-full">
         <EmptyHeader>
@@ -34,28 +73,54 @@ export function PropertiesTab({ tab }: { tab: Tab }) {
     )
   }
 
-  const pkCount = table.columns.filter((c) => c.isPrimaryKey).length
-  const fkCount = table.columns.filter((c) => c.isForeignKey).length
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" />
+        Reading {tableName}…
+      </div>
+    )
+  }
+
+  if (error || !loaded) {
+    return (
+      <Empty className="h-full">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <TableIcon />
+          </EmptyMedia>
+          <EmptyTitle>Couldn&apos;t read {tableName}</EmptyTitle>
+          <EmptyDescription>{error ?? "Unknown error"}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  }
+
+  const { columns, rowCount } = loaded
+  const pkCount = columns.filter((c) => c.isPrimaryKey).length
+  const fkCount = columns.filter((c) => c.isForeignKey).length
+  const qualified = [tab.schemaName, tableName].filter(Boolean).join(".")
 
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto max-w-3xl p-6">
         <div className="flex items-center gap-2">
           <TableIcon className="size-5 text-primary" aria-hidden />
-          <h2 className="font-mono text-lg font-semibold text-foreground">
-            {tab.schemaName}.{table.name}
-          </h2>
+          <h2 className="font-mono text-lg font-semibold text-foreground">{qualified}</h2>
           <Badge variant="secondary" className="uppercase">
-            {table.kind}
+            {database}
           </Badge>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connection?.name} · {connection?.driver}
+          {connection.name} · {connection.driver}
         </p>
 
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Rows" value={table.rowCount.toLocaleString()} />
-          <StatCard label="Columns" value={String(table.columns.length)} />
+          <StatCard
+            label="Rows"
+            value={rowCount === null ? "—" : rowCount.toLocaleString()}
+          />
+          <StatCard label="Columns" value={String(columns.length)} />
           <StatCard label="Primary keys" value={String(pkCount)} />
           <StatCard label="Foreign keys" value={String(fkCount)} />
         </div>
@@ -73,7 +138,7 @@ export function PropertiesTab({ tab }: { tab: Tab }) {
               </tr>
             </thead>
             <tbody>
-              {table.columns.map((col, i) => (
+              {columns.map((col, i) => (
                 <tr
                   key={col.name}
                   className={i % 2 === 0 ? "bg-card" : "bg-card/40"}

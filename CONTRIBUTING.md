@@ -34,6 +34,44 @@ fix: prevent duplicate tabs when opening same table
 docs: update deployment guide with Docker instructions
 ```
 
+Pull requests are checked by the **Commit lint** workflow. Squash merges keep
+only the PR title, so write the title in the same form.
+
+### Branches and releases
+
+`main` is the source of truth. Changes flow one way:
+
+```
+feature branch --PR--> main --> dev --> prod
+                       (source)  (pre-releases)  (stable releases)
+```
+
+- Open feature PRs against `main`.
+- Promote `main` into `dev` (`dev` is created from `main`).
+- Promote `dev` into `prod` (`prod` is created from `dev`).
+- Pushing to `dev` publishes a pre-release such as `1.4.0-dev.2`.
+- Pushing to `prod` publishes a stable release such as `1.4.0`.
+- After a release, bring the version bump commit back into `main` so the
+  branches don't drift.
+
+Releases are automatic. Every push to `dev` or `prod` runs
+[semantic-release](https://github.com/semantic-release/semantic-release)
+(`.releaserc.json`), which reads the commits since the last tag:
+
+| Commit | Version bump |
+| --- | --- |
+| `fix:` | patch (1.2.3 → 1.2.4) |
+| `feat:` | minor (1.2.3 → 1.3.0) |
+| `feat!:` or a `BREAKING CHANGE:` footer | major (1.2.3 → 2.0.0) |
+| `docs:`, `chore:`, `refactor:`, `test:`, … | no release |
+
+When a release is published, the release workflow (`.github/workflows/release.yml`)
+updates `CHANGELOG.md` and `package.json`, tags `vX.Y.Z`, creates the GitHub
+release, attaches a standalone server tarball with its SHA-256 checksum, and
+pushes the container image to `ghcr.io/<owner>/<repo>`. Stable releases also
+move `latest`; pre-releases don't.
+Do not edit the version or the changelog by hand.
+
 ## Code style
 
 - **TypeScript**: Strict mode. No `any` types without justification.
