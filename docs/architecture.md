@@ -40,10 +40,13 @@ users, roles, and audit log — controlled by `NEXT_PUBLIC_SYSTEM_BACKEND`:
    └───────┬───────────────────────┬───────────┘
            │                       │
            ▼                       ▼
-  .data/connections.json    Postgres "datalook" schema
-  (AES-256-GCM encrypted    (users, roles, audit_log —
-   connection credentials,   only when SYSTEM_BACKEND=
-   server filesystem)        postgres; scripts/init-db.ts)
+  Postgres "datalook" schema  .data/connections.json
+  (users, roles, connections, (browser demo only;
+   grants, audit_log, …;      local filesystem)
+   AES-256-GCM encrypted
+   credentials; only when
+   SYSTEM_BACKEND=postgres;
+   scripts/init-db.ts)
 ```
 
 In `browser` backend mode, the identity side of that diagram doesn't exist —
@@ -128,11 +131,13 @@ The app uses IndexedDB with 4 object stores:
 | `queries` | Saved SQL queries per database type |
 | `audit` | Audit log entries |
 
-Connection credentials are additionally encrypted server-side
-(`lib/db/server-crypto.ts`, AES-256-GCM) and stored in `.data/connections.json`
-on the server filesystem — fine for a single-instance Docker/standalone
-deployment, not for Vercel's ephemeral filesystem or a multi-instance
-deployment.
+Connection credentials are encrypted server-side (`lib/db/server-crypto.ts`,
+AES-256-GCM). With `SYSTEM_BACKEND=postgres` they live in
+`datalook.connections` (encrypted blob in `config_enc`, string ids in
+`external_id`), and grants live in `datalook.connection_grants`. Every
+`/api/connections/*` route checks the session and the caller's connection role
+on the server (`lib/db/access.ts`); the client's role checks only decide what
+to show.
 
 ## UI components
 
@@ -140,12 +145,10 @@ The app uses **shadcn/ui** components built on **Base UI** (not Radix). Componen
 
 ## Database drivers
 
-10 of the 11 drivers listed in `lib/drivers.ts` have a real, working adapter
-in `lib/db/adapters/`: PostgreSQL, MySQL, CockroachDB, ClickHouse, SQLite,
-MongoDB, CouchDB, Redis, Cassandra, DynamoDB. **MSSQL is listed but not
-implemented** — `lib/db/adapter-factory.ts` throws a clear `unsupported`
-error rather than silently using the wrong wire protocol, and it's shown
-disabled in the driver picker.
+All 11 drivers listed in `lib/drivers.ts` have a live adapter in
+`lib/db/adapters/`: PostgreSQL, MySQL, MSSQL, CockroachDB, ClickHouse, SQLite,
+MongoDB, CouchDB, Redis, Cassandra, DynamoDB. SQL identifiers, string
+literals and paging are built per engine in `lib/db/sql-dialect.ts`.
 
 Each driver entry has:
 
@@ -170,11 +173,10 @@ Roles and permissions are defined in `lib/rbac.ts`:
 
 ## Known gaps
 
-- **Server Status tab** shows illustrative (not live) metrics for every
-  connection — no driver has real monitoring/metrics collection yet. The tab
-  is labeled "Simulated metrics" so this isn't presented as real telemetry.
-- **Query history** and the **connections**/**query_history** Postgres tables
-  created by `scripts/init-db.ts` are schema-only — not yet wired to any read
-  path.
-- **Connection storage** (`.data/connections.json`) doesn't work on
-  serverless/ephemeral filesystems (Vercel) or multi-instance deployments.
+- **SQL write statements through the SQL editor** are checked by the server
+  from the statement's first keyword (`guardQuery`). Statements that can hide
+  writes inside a SELECT (for example a function with side effects) are not
+  detected.
+- **Browser demo** (`SYSTEM_BACKEND=browser`) still uses fixture data and
+  IndexedDB for users, roles and audit history. That path is for trying the
+  app; a real deployment should use `SYSTEM_BACKEND=postgres`.

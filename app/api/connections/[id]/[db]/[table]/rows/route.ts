@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnectedAdapter } from '@/lib/db/adapter-factory'
+import { forDatabase, getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { pagingClause, quoteIdent, quoteString } from '@/lib/db/sql-dialect'
 import { DBError } from '@/lib/db/types'
 import { SYSTEM_CONNECTION_ID } from '@/lib/system-store'
-import { getSessionFromRequest } from '@/lib/auth/session'
+import { guardConnection } from '@/lib/db/access'
 
 /**
  * Never let the generic row browser return password hashes, even to an
@@ -22,29 +23,19 @@ const REDACTED_COLUMNS: Record<string, string[]> = {
  * writes require the Admin role, mirroring effectiveConnectionRole() in
  * lib/rbac.ts for isSystem connections.
  */
-function guardSystemConnection(request: NextRequest, id: string, requireAdmin: boolean): NextResponse | null {
-  if (id !== SYSTEM_CONNECTION_ID) return null
-  const session = getSessionFromRequest(request)
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (requireAdmin && session.role !== 'Admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-  return null
-}
-
 /** GET — fetch paginated rows from a table/collection */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; db: string; table: string }> },
 ) {
   try {
-    const { id, db: _db, table } = await params
-    const config = loadServerConnection(id)
+    const { id, db, table } = await params
+    const denied = await guardConnection(request, id, 'viewer')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
-    const guardResponse = guardSystemConnection(request, id, false)
-    if (guardResponse) return guardResponse
 
     const sp = request.nextUrl.searchParams
     const page = parseInt(sp.get('page') || '1', 10)
@@ -55,7 +46,9 @@ export async function GET(
     const sortDir = sp.get('sortDir') || 'asc'
     const filter = sp.get('filter') || undefined
 
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+
+    const adapter = await getConnectedAdapter(target)
     const decodedTable = decodeURIComponent(table)
 
     // Build a query based on driver category
@@ -65,7 +58,7 @@ export async function GET(
     if (['mongodb', 'couchdb', 'dynamodb', 'redis'].includes(driver)) {
       query = {
         collection: decodedTable,
-        database: config.database,
+        database: target.database,
         limit: pageSize,
         skip: offset,
         sortBy,
@@ -74,8 +67,8 @@ export async function GET(
       }
     } else {
       // SQL — build SELECT with pagination
-      const escapedTable = escapeIdent(decodedTable)
-      const schemaPrefix = schema ? `${escapeIdent(schema)}.` : ''
+      const escapedTable = quoteIdent(driver, decodedTable)
+      const schemaPrefix = schema ? `${quoteIdent(driver, schema)}.` : ''
       let sql = `SELECT * FROM ${schemaPrefix}${escapedTable}`
       
       if (filter) {
@@ -83,25 +76,30 @@ export async function GET(
           const filterObj = JSON.parse(filter)
           const conditions = Object.entries(filterObj)
             .map(([col, val]) => {
-              if (val === null) return `${escapeIdent(col)} IS NULL`
+              if (val === null) return `${quoteIdent(driver, col)} IS NULL`
               const numVal = Number(val)
               if (!isNaN(numVal) && String(val) === String(numVal)) {
-                return `${escapeIdent(col)} = ${numVal}`
+                return `${quoteIdent(driver, col)} = ${numVal}`
               }
-              return `${escapeIdent(col)} = '${String(val).replace(/'/g, "''")}'`
+              return `${quoteIdent(driver, col)} = ${quoteString(driver, String(val))}`
             })
             .join(' AND ')
           if (conditions) sql += ` WHERE ${conditions}`
         } catch {
-          sql += ` WHERE ${filter}`
+          // Never splice the raw text into SQL: this is a GET, so a viewer could
+          // otherwise smuggle statements through the filter parameter.
+          return NextResponse.json(
+            { error: 'filter must be a JSON object of column: value pairs' },
+            { status: 400 },
+          )
         }
       }
       
       if (sortBy) {
-        sql += ` ORDER BY ${escapeIdent(sortBy)} ${sortDir === 'desc' ? 'DESC' : 'ASC'}`
+        sql += ` ORDER BY ${quoteIdent(driver, sortBy)} ${sortDir === 'desc' ? 'DESC' : 'ASC'}`
       }
-      
-      sql += ` LIMIT ${pageSize} OFFSET ${offset}`
+
+      sql += pagingClause(driver, pageSize, offset, !!sortBy)
       query = sql
     }
 
@@ -123,8 +121,8 @@ export async function GET(
     let total: number | undefined
     if (!['mongodb', 'couchdb', 'dynamodb', 'redis'].includes(driver)) {
       try {
-        const schemaPrefix = schema ? `${escapeIdent(schema)}.` : ''
-        const countQuery = `SELECT COUNT(*) as total FROM ${schemaPrefix}${escapeIdent(decodedTable)}`
+        const schemaPrefix = schema ? `${quoteIdent(driver, schema)}.` : ''
+        const countQuery = `SELECT COUNT(*) as total FROM ${schemaPrefix}${quoteIdent(driver, decodedTable)}`
         const countResult = await adapter.query(countQuery)
         if (countResult.rows.length > 0) {
           total = Number(countResult.rows[0].total)
@@ -165,17 +163,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string; db: string; table: string }> },
 ) {
   try {
-    const { id, db: _db, table } = await params
-    const config = loadServerConnection(id)
+    const { id, db, table } = await params
+    const denied = await guardConnection(request, id, 'editor')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
-    const guardResponse = guardSystemConnection(request, id, true)
-    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+    const adapter = await getConnectedAdapter(target)
     const driver = config.driver
 
     let query: unknown
@@ -185,15 +184,15 @@ export async function POST(
       const columns = Object.keys(body.data)
       const values = Object.values(body.data)
       const schema = body.schema
-      const schemaPrefix = schema ? `${escapeIdent(schema)}.` : ''
-      const colList = columns.map(c => escapeIdent(c)).join(', ')
+      const schemaPrefix = schema ? `${quoteIdent(driver, schema)}.` : ''
+      const colList = columns.map(c => quoteIdent(driver, c)).join(', ')
       const valList = values.map(v => {
         if (v === null || v === undefined) return 'NULL'
         const numVal = Number(v)
         if (!isNaN(numVal) && String(v) === String(numVal)) return String(numVal)
         return `'${String(v).replace(/'/g, "''")}'`
       }).join(', ')
-      query = `INSERT INTO ${schemaPrefix}${escapeIdent(decodedTable)} (${colList}) VALUES (${valList})`
+      query = `INSERT INTO ${schemaPrefix}${quoteIdent(driver, decodedTable)} (${colList}) VALUES (${valList})`
     }
 
     const result = await adapter.query(query)
@@ -216,17 +215,18 @@ export async function PUT(
   { params }: { params: Promise<{ id: string; db: string; table: string }> },
 ) {
   try {
-    const { id, db: _db, table } = await params
-    const config = loadServerConnection(id)
+    const { id, db, table } = await params
+    const denied = await guardConnection(request, id, 'editor')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
-    const guardResponse = guardSystemConnection(request, id, true)
-    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+    const adapter = await getConnectedAdapter(target)
     const driver = config.driver
 
     let query: unknown
@@ -234,26 +234,26 @@ export async function PUT(
       query = { collection: decodedTable, operation: 'update', filter: body.filter, document: body.data }
     } else {
       const schema = body.schema
-      const schemaPrefix = schema ? `${escapeIdent(schema)}.` : ''
+      const schemaPrefix = schema ? `${quoteIdent(driver, schema)}.` : ''
       const setClauses = Object.entries(body.data as Record<string, unknown>)
         .map(([col, val]) => {
-          if (val === null || val === undefined) return `${escapeIdent(col)} = NULL`
+          if (val === null || val === undefined) return `${quoteIdent(driver, col)} = NULL`
           const numVal = Number(val)
-          if (!isNaN(numVal) && String(val) === String(numVal)) return `${escapeIdent(col)} = ${numVal}`
-          return `${escapeIdent(col)} = '${String(val).replace(/'/g, "''")}'`
+          if (!isNaN(numVal) && String(val) === String(numVal)) return `${quoteIdent(driver, col)} = ${numVal}`
+          return `${quoteIdent(driver, col)} = ${quoteString(driver, String(val))}`
         })
         .join(', ')
       
       const whereClauses = Object.entries(body.filter as Record<string, unknown>)
         .map(([col, val]) => {
-          if (val === null) return `${escapeIdent(col)} IS NULL`
+          if (val === null) return `${quoteIdent(driver, col)} IS NULL`
           const numVal = Number(val)
-          if (!isNaN(numVal) && String(val) === String(numVal)) return `${escapeIdent(col)} = ${numVal}`
-          return `${escapeIdent(col)} = '${String(val).replace(/'/g, "''")}'`
+          if (!isNaN(numVal) && String(val) === String(numVal)) return `${quoteIdent(driver, col)} = ${numVal}`
+          return `${quoteIdent(driver, col)} = ${quoteString(driver, String(val))}`
         })
         .join(' AND ')
       
-      query = `UPDATE ${schemaPrefix}${escapeIdent(decodedTable)} SET ${setClauses} WHERE ${whereClauses}`
+      query = `UPDATE ${schemaPrefix}${quoteIdent(driver, decodedTable)} SET ${setClauses} WHERE ${whereClauses}`
     }
 
     const result = await adapter.query(query)
@@ -276,17 +276,18 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; db: string; table: string }> },
 ) {
   try {
-    const { id, db: _db, table } = await params
-    const config = loadServerConnection(id)
+    const { id, db, table } = await params
+    const denied = await guardConnection(request, id, 'editor')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
-    const guardResponse = guardSystemConnection(request, id, true)
-    if (guardResponse) return guardResponse
 
     const body = await request.json()
     const decodedTable = decodeURIComponent(table)
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+    const adapter = await getConnectedAdapter(target)
     const driver = config.driver
 
     let query: unknown
@@ -294,17 +295,17 @@ export async function DELETE(
       query = { collection: decodedTable, operation: 'delete', filter: body.filter }
     } else {
       const schema = body.schema
-      const schemaPrefix = schema ? `${escapeIdent(schema)}.` : ''
+      const schemaPrefix = schema ? `${quoteIdent(driver, schema)}.` : ''
       const whereClauses = Object.entries(body.filter as Record<string, unknown>)
         .map(([col, val]) => {
-          if (val === null) return `${escapeIdent(col)} IS NULL`
+          if (val === null) return `${quoteIdent(driver, col)} IS NULL`
           const numVal = Number(val)
-          if (!isNaN(numVal) && String(val) === String(numVal)) return `${escapeIdent(col)} = ${numVal}`
-          return `${escapeIdent(col)} = '${String(val).replace(/'/g, "''")}'`
+          if (!isNaN(numVal) && String(val) === String(numVal)) return `${quoteIdent(driver, col)} = ${numVal}`
+          return `${quoteIdent(driver, col)} = ${quoteString(driver, String(val))}`
         })
         .join(' AND ')
       
-      query = `DELETE FROM ${schemaPrefix}${escapeIdent(decodedTable)} WHERE ${whereClauses}`
+      query = `DELETE FROM ${schemaPrefix}${quoteIdent(driver, decodedTable)} WHERE ${whereClauses}`
     }
 
     const result = await adapter.query(query)
@@ -321,6 +322,3 @@ export async function DELETE(
   }
 }
 
-function escapeIdent(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`
-}

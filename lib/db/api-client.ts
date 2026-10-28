@@ -3,6 +3,8 @@
  * These call the Route Handlers which handle server-side DB connections.
  */
 
+import type { Column } from '@/lib/types'
+
 export interface DatabaseListResponse {
   databases: string[]
 }
@@ -97,14 +99,32 @@ export async function fetchTables(
   return res.tables
 }
 
+/** Adapters return SQL column defs or NoSQL field samples; the UI shows both as columns. */
+export function structureToColumns(structure: ColumnDef[] | FieldSample): Column[] {
+  if (Array.isArray(structure)) {
+    return structure.map((c) => ({
+      name: c.name,
+      type: c.type,
+      nullable: c.nullable,
+      isPrimaryKey: c.isPrimaryKey,
+      defaultValue: c.defaultValue,
+    }))
+  }
+  return structure.fields.map((f) => ({ name: f.name, type: f.type, nullable: true }))
+}
+
 export async function fetchStructure(
   connectionId: string,
   database: string,
   table: string,
+  schema?: string,
 ): Promise<ColumnDef[] | FieldSample> {
-  const res = await apiFetch<StructureResponse>(
+  const url = new URL(
     `/api/connections/${encodeURIComponent(connectionId)}/${encodeURIComponent(database)}/${encodeURIComponent(table)}/structure`,
+    window.location.origin,
   )
+  if (schema) url.searchParams.set('schema', schema)
+  const res = await apiFetch<StructureResponse>(url.toString())
   return res.structure
 }
 
@@ -131,6 +151,53 @@ export async function fetchServerMetrics(connectionId: string): Promise<ServerMe
   return res.metrics
 }
 
+/** A connection as the server describes it: no credentials, ever. */
+export interface RemoteConnection {
+  id: string
+  name: string
+  driver: string
+  host: string
+  port: number
+  database: string
+  username: string
+  scope: 'shared' | 'personal'
+  ownerId: string
+  readOnly: boolean
+  topology: string
+  options: Record<string, unknown>
+  grants: { userId: string; role: 'viewer' | 'editor' | 'manager' | 'admin' }[]
+}
+
+/** Connections the signed-in user can see (their own plus shared ones granted to them). */
+export async function fetchConnections(): Promise<RemoteConnection[]> {
+  const res = await apiFetch<{ connections: RemoteConnection[] }>('/api/connections')
+  return res.connections
+}
+
+export async function updateConnectionRemote(
+  connectionId: string,
+  config: Record<string, unknown>,
+): Promise<{ id: string; status: string }> {
+  return apiFetch(`/api/connections/${encodeURIComponent(connectionId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+}
+
+export async function deleteConnectionRemote(connectionId: string): Promise<void> {
+  await apiFetch(`/api/connections/${encodeURIComponent(connectionId)}`, { method: 'DELETE' })
+}
+
+export async function replaceConnectionGrantsRemote(
+  connectionId: string,
+  grants: { userId: string; role: 'viewer' | 'editor' | 'manager' | 'admin' }[],
+): Promise<void> {
+  await apiFetch(`/api/connections/${encodeURIComponent(connectionId)}/grants`, {
+    method: 'PUT',
+    body: JSON.stringify({ grants }),
+  })
+}
+
 export async function createConnection(config: {
   id: string
   driver: string
@@ -148,6 +215,8 @@ export async function createConnection(config: {
   readOnly?: boolean
   scope?: string
   ownerId?: string
+  topology?: string
+  replicaHosts?: unknown
 }): Promise<{ id: string; status: string }> {
   return apiFetch('/api/connections', {
     method: 'POST',

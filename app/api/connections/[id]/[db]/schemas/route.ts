@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnectedAdapter } from '@/lib/db/adapter-factory'
+import { forDatabase, getConnectedAdapter } from '@/lib/db/adapter-factory'
 import { loadServerConnection } from '@/lib/db/server-store'
+import { guardConnection } from '@/lib/db/access'
 import { DBError } from '@/lib/db/types'
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; db: string }> },
 ) {
   try {
     const { id, db } = await params
-    const config = loadServerConnection(id)
+    const denied = await guardConnection(request, id, 'viewer')
+    if (denied) return denied
+    const config = await loadServerConnection(id)
     if (!config) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const adapter = await getConnectedAdapter(config)
+    const target = forDatabase(config, decodeURIComponent(db))
+
+    const adapter = await getConnectedAdapter(target)
     if (!adapter.listSchemas) {
       return NextResponse.json({ schemas: [] })
     }

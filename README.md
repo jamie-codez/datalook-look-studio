@@ -10,7 +10,7 @@ Most database GUIs are desktop applications (DBeaver, TablePlus) or single-vendo
 
 **Datalook Studio** solves this by providing:
 
-- **Multi-engine support** — 10 working database drivers (PostgreSQL, MySQL, CockroachDB, ClickHouse, MongoDB, CouchDB, Redis, Cassandra, DynamoDB, SQLite) from one interface. MSSQL is listed but not yet implemented — see [`lib/db/adapter-factory.ts`](lib/db/adapter-factory.ts).
+- **Multi-engine support** — 11 database drivers (PostgreSQL, MySQL, MSSQL, CockroachDB, ClickHouse, MongoDB, CouchDB, Redis, Cassandra, DynamoDB, SQLite) from one interface. Every engine browses, queries and edits through a live adapter; see [`lib/db/adapter-factory.ts`](lib/db/adapter-factory.ts).
 - **Role-based access control** — Built-in roles (Admin, Editor, Viewer) plus custom roles with fine-grained permissions. Shared and personal connections.
 - **Credentials encrypted at rest** — AES-GCM encryption (server-side for connections created through the app; Web Crypto in the browser-only demo mode). Connection credentials are never stored in plaintext.
 - **Two deployment modes** — a zero-backend browser demo (all state in IndexedDB, no real auth) for trying the app, or a real backend (Postgres-backed users/roles/audit log, hashed passwords, signed sessions) for an actual team deployment. See [Architecture](#architecture).
@@ -58,11 +58,13 @@ audit log answer to** — controlled by `NEXT_PUBLIC_SYSTEM_BACKEND`:
 └───────────────────────────────┘        └───────────────────────────────┘
 ```
 
-In both modes, connection credentials for databases you connect *to* are
-encrypted server-side (`lib/db/server-crypto.ts`, AES-256-GCM) and stored in
-`.data/connections.json` on the server filesystem — fine for a single-instance
-Docker/standalone deployment, but not for Vercel's ephemeral filesystem or a
-multi-instance deployment (see `docs/deployment/vercel.md`).
+Connection credentials for databases you connect *to* are encrypted
+server-side (`lib/db/server-crypto.ts`, AES-256-GCM). With
+`NEXT_PUBLIC_SYSTEM_BACKEND=postgres` they're stored in the
+`datalook.connections` table of the system database, so every instance and
+every signed-in user sees the same connections. The browser demo keeps them in
+`.data/connections.json` on the local filesystem, which is for local
+development only.
 
 The `postgres` backend is what `docker/docker-compose.yaml` runs by default.
 It gets you real server-verified login (hashed passwords, signed session
